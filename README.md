@@ -4,6 +4,8 @@ AI 账号自动发卡站，第一个商品是 GPT 成品号。基于开源 [Duji
 
 ## 文档
 
+> 接手开发先读 [HANDOFF.md](HANDOFF.md)：当前进度、未验证项、访问权限现状、待办。
+
 | 文档 | 内容 |
 | --- | --- |
 | [docs/01-business-spec.md](docs/01-business-spec.md) | 业务：目标、上线路线、商品、支付、备案、售后、风险、待拍板事项 |
