@@ -1,0 +1,8 @@
+# 密钥和运行数据，永远不进 Git
+stack/.env
+stack/config/config.yml
+stack/data/
+stack/backups/
+*.pem
+*.key
+.DS_Store
