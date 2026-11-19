@@ -1,0 +1,80 @@
+# shuweicao 应用栈：本地（Mac）和线上服务器用同一份
+#   gateway      Nginx，对外入口（127.0.0.1:APP_PORT），转发到商城并自动插入 theme/ 主题
+#   dujiao-next  商城（前台 + 后台 + API），只在内部网络
+#   redis        给商城用的缓存 / 队列，只在内部网络
+#   bepusdt      USDT 收款服务，只监听 127.0.0.1:BEPUSDT_PORT
+#
+# 启动：  docker compose up -d
+# 日志：  docker compose logs -f dujiao-next
+# 升级：  ./upgrade.sh v1.x.x
+#
+# Apple Silicon 的 Mac 如果拉镜像报 "no matching manifest for linux/arm64"，
+# 先执行 export DOCKER_DEFAULT_PLATFORM=linux/amd64 再启动。
+
+name: shuweicao
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: shuweicao-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks: [dujiao-net]
+
+  dujiao-next:
+    image: dujiaonext/dujiao-next:${TAG:-latest}
+    container_name: shuweicao-dujiao
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - "8080"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      DJ_DEFAULT_ADMIN_USERNAME: ${DJ_DEFAULT_ADMIN_USERNAME:-admin}
+      DJ_DEFAULT_ADMIN_PASSWORD: ${DJ_DEFAULT_ADMIN_PASSWORD:-}
+    volumes:
+      - ./config/config.yml:/app/config.yml:ro
+      - ./data/db:/app/db
+      - ./data/uploads:/app/uploads
+      - ./data/logs:/app/logs
+    networks: [dujiao-net]
+
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: shuweicao-gateway
+    restart: unless-stopped
+    depends_on:
+      - dujiao-next
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:80"
+    environment:
+      THEME_VERSION: ${THEME_VERSION:-1}
+    volumes:
+      - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./theme:/usr/share/nginx/html/sw-theme:ro
+    networks: [dujiao-net]
+
+  bepusdt:
+    image: v03413/bepusdt:${BEPUSDT_TAG:-latest}
+    container_name: shuweicao-bepusdt
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BEPUSDT_PORT:-8090}:8080"
+    volumes:
+      - ./data/bepusdt:/var/lib/bepusdt
+    networks: [dujiao-net]
+
+networks:
+  dujiao-net:
+    driver: bridge

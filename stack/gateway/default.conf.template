@@ -1,0 +1,44 @@
+# gateway：站在 dujiao-next 前面的 Nginx 容器
+#   1. 把请求转给 dujiao-next
+#   2. 在每个 HTML 页面的 </head> 前插入主题文件（sw-theme.css / sw-config.js / sw-home.js）
+#   3. /sw-theme/ 路径直接返回 stack/theme/ 里的静态文件
+# ${THEME_VERSION} 由 nginx 官方镜像在启动时用 .env 的值替换（用于让浏览器拿到新文件）
+
+# 外层（宿主机 Nginx / Cloudflare）传来的真实 IP 和协议，没有就用本层的
+map $http_x_real_ip $sw_client_ip {
+    ""      $remote_addr;
+    default $http_x_real_ip;
+}
+map $http_x_forwarded_proto $sw_proto {
+    ""      $scheme;
+    default $http_x_forwarded_proto;
+}
+
+server {
+    listen 80;
+    server_name _;
+    client_max_body_size 50m;
+    server_tokens off;
+
+    # 主题静态文件
+    location ^~ /sw-theme/ {
+        alias /usr/share/nginx/html/sw-theme/;
+        add_header Cache-Control "public, max-age=604800";
+    }
+
+    location / {
+        proxy_pass http://dujiao-next:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $sw_client_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $sw_proto;
+        proxy_read_timeout 60s;
+
+        # sub_filter 需要未压缩的响应
+        proxy_set_header Accept-Encoding "";
+        sub_filter_types text/html;
+        sub_filter_once on;
+        sub_filter '</head>' '<link rel="stylesheet" href="/sw-theme/sw-theme.css?v=${THEME_VERSION}"><script defer src="/sw-theme/sw-config.js?v=${THEME_VERSION}"></script><script defer src="/sw-theme/sw-home.js?v=${THEME_VERSION}"></script></head>';
+    }
+}
