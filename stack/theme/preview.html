@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主题预览 · shuweicao（静态示意）</title>
+<!--
+  静态预览：不需要启动 Docker，直接双击用浏览器打开即可看配色和首页区块。
+  页面骨架是仿 vault 模板的简化版，商品卡片只是示意；真实效果以本地启动后的商城为准。
+-->
+<link rel="stylesheet" href="sw-theme.css">
+<style>
+  /* 仅预览用：补上 vault 自带、而本主题没覆盖的基础令牌和骨架样式 */
+  .vault-scope {
+    --r-sm: 10px; --r: 16px; --r-lg: 22px; --r-xl: 30px; --ease: cubic-bezier(.2,.7,.2,1);
+    background: var(--bg); color: var(--ink);
+    font-family: "Nunito Sans", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; margin: 0;
+  }
+  body { margin: 0; }
+  .pv-header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .pv-bar { max-width: 1180px; margin: 0 auto; height: 70px; display: flex; align-items: center; gap: 20px; padding: 0 24px; box-sizing: border-box; }
+  .pv-logo { font-weight: 800; font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .pv-logo i { width: 30px; height: 30px; border-radius: 9px; background: var(--red); display: grid; place-items: center; font-style: normal; color: var(--on-red); font-size: 15px; }
+  .pv-nav a { padding: 8px 14px; border-radius: 999px; color: var(--ink-2); font-weight: 600; font-size: 15px; text-decoration: none; }
+  .pv-nav a.on { background: var(--red-soft); color: var(--sw-accent-text); }
+  .pv-right { margin-left: auto; display: flex; gap: 8px; }
+  .pv-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--surface-2); border: 0; color: var(--ink-2); font-size: 16px; cursor: pointer; }
+  .pv-section { max-width: 1180px; margin: 0 auto; padding: 36px 24px; box-sizing: border-box; width: 100%; }
+  .pv-section h2 { margin: 0 0 22px; font-size: 28px; font-weight: 800; }
+  .pv-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); }
+  .pv-card { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+  .pv-img { height: 120px; background: linear-gradient(135deg, var(--red-soft), var(--surface-2)); display: grid; place-items: center; font-weight: 800; font-size: 22px; color: var(--sw-accent-text); }
+  .pv-body { padding: 16px; }
+  .pv-body b { display: block; font-size: 16px; }
+  .pv-chips { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .pv-chip { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 8px; background: var(--surface-2); color: var(--ink-2); }
+  .pv-chip.ok { background: var(--teal-soft); color: var(--teal-strong); }
+  .pv-chip.low { background: var(--gold-soft); color: var(--gold-strong); }
+  .pv-row { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+  .pv-price { font-size: 20px; font-weight: 800; }
+  .pv-buy { border: 0; border-radius: 999px; padding: 8px 16px; font-weight: 700; background: var(--red); color: var(--on-red); cursor: pointer; }
+  @media (max-width: 900px) { .pv-nav { display: none; } }
+  .pv-footer { margin-top: 56px; border-top: 1px solid var(--border); padding: 40px 24px; text-align: center; color: var(--ink-3); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="vault-scope">
+  <header class="pv-header">
+    <div class="pv-bar">
+      <div class="pv-logo"><i>S</i>shuweicao</div>
+      <nav class="pv-nav"><a class="on" href="#">首页</a><a href="#">全部商品</a><a href="#">公告</a><a href="#">游客查单</a></nav>
+      <div class="pv-right">
+        <button class="pv-icon" title="搜索">⌕</button>
+        <button class="pv-icon" id="pv-dark" title="切换深色">☾</button>
+        <button class="pv-icon" title="购物车">🛒</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div>
+      <section class="pv-section">
+        <h2>热门商品</h2>
+        <div class="pv-grid">
+          <div class="pv-card"><div class="pv-img">GPT Plus</div><div class="pv-body"><b>GPT Plus 成品号（1 个月）</b><div class="pv-chips"><span class="pv-chip">自动发货</span><span class="pv-chip ok">● 有货</span></div><div class="pv-row"><span class="pv-price">¥ —</span><button class="pv-buy">购买</button></div></div></div>
+          <div class="pv-card"><div class="pv-img">GPT Plus</div><div class="pv-body"><b>GPT Plus 成品号（3 个月）</b><div class="pv-chips"><span class="pv-chip">自动发货</span><span class="pv-chip low">库存紧张</span></div><div class="pv-row"><span class="pv-price">¥ —</span><button class="pv-buy">购买</button></div></div></div>
+          <div class="pv-card"><div class="pv-img">GPT Pro</div><div class="pv-body"><b>GPT Pro 成品号（示例）</b><div class="pv-chips"><span class="pv-chip">人工发货</span><span class="pv-chip">暂时缺货</span></div><div class="pv-row"><span class="pv-price">¥ —</span><button class="pv-buy">购买</button></div></div></div>
+          <div class="pv-card"><div class="pv-img">GPT Go</div><div class="pv-body"><b>GPT Go 成品号（示例）</b><div class="pv-chips"><span class="pv-chip">自动发货</span><span class="pv-chip ok">● 有货</span></div><div class="pv-row"><span class="pv-price">¥ —</span><button class="pv-buy">购买</button></div></div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="pv-footer">© shuweicao · 静态预览，商品卡片仅为示意</footer>
+</div>
+
+<script>
+  window.SW_THEME_FORCE_HOME = true;
+  document.getElementById('pv-dark').onclick = function () {
+    document.documentElement.classList.toggle('dark');
+  };
+  if (location.hash === '#dark') document.documentElement.classList.add('dark');
+</script>
+<script src="sw-config.js"></script>
+<script src="sw-home.js"></script>
+</body>
+</html>
