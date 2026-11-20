@@ -21,7 +21,8 @@ CONF=/etc/nginx/conf.d/cloudflare-realip.conf
   for ip in $V4 $V6; do echo "set_real_ip_from $ip;"; done
   echo "real_ip_header CF-Connecting-IP;"
 } > "$CONF"
-nginx -t && systemctl reload nginx
+nginx -t || { echo "✗ Nginx 配置检查没通过，没有重载"; exit 1; }
+systemctl reload nginx
 echo "已写入 $CONF"
 [ "${1:-}" = "--no-ufw" ] && exit 0
 

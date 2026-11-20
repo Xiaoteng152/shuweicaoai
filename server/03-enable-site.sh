@@ -29,5 +29,6 @@ ln -sf /etc/nginx/sites-available/shuweicao.conf /etc/nginx/sites-enabled/shuwei
 rm -f /etc/nginx/sites-enabled/default
 sed -i 's/# *server_tokens off;/server_tokens off;/' /etc/nginx/nginx.conf
 
-nginx -t && systemctl reload nginx
+nginx -t || { echo "✗ Nginx 配置检查没通过，没有重载"; exit 1; }
+systemctl reload nginx
 echo "✓ 已启用：https://shuweicao.org"
