@@ -7,12 +7,16 @@ SRC="$SCRIPT_DIR/../stack"
 DEST=/opt/shuweicao
 [ "$(id -u)" -eq 0 ] || { echo "请用 root 运行"; exit 1; }
 
-mkdir -p "$DEST/config"
+mkdir -p "$DEST/config" "$DEST/gateway" "$DEST/theme"
 for f in docker-compose.yml .env.example init.sh backup.sh upgrade.sh; do
   install -m 755 "$SRC/$f" "$DEST/$f"
 done
 chmod 644 "$DEST/docker-compose.yml" "$DEST/.env.example"
 cp -n "$SRC/config/README.md" "$DEST/config/" 2>/dev/null || true
+# gateway 配置和主题是代码，每次部署都覆盖（docker-compose.yml 会挂载这两个目录）
+cp -R "$SRC/gateway/." "$DEST/gateway/"
+cp -R "$SRC/theme/." "$DEST/theme/"
+chmod -R a+rX "$DEST/gateway" "$DEST/theme"
 
 cd "$DEST"
 ./init.sh
@@ -30,8 +34,8 @@ cat <<EOF
 
 下一步：
   1. nano $DEST/config/config.yml       按上面清单修改（线上 server.mode 改 release）
-  2. cd $DEST && docker compose up -d
-  3. docker compose logs dujiao-next | grep -i password    # 首次管理员密码
+  2. cd $DEST && docker compose up -d gateway               # 不用 USDT 时先不起 bepusdt
+  3. docker compose logs dujiao-next | grep 随机密码        # 首次管理员密码
   4. curl -s http://127.0.0.1:8080/health                  # 健康检查
-  5. 放好 Cloudflare 源站证书后：bash $SCRIPT_DIR/03-enable-site.sh
+  5. bash $SCRIPT_DIR/03-enable-site.sh                    # 有 Let's Encrypt 证书直接用，否则先放好 Cloudflare 源站证书
 EOF

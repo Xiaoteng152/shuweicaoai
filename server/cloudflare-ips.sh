@@ -3,6 +3,9 @@
 #   1) 生成 Nginx real_ip 配置，让日志和 Dujiao 拿到顾客真实 IP
 #   2) ufw 只允许 Cloudflare 访问 80/443（防止有人绕过 Cloudflare 直连源站）
 # 用法：sudo bash cloudflare-ips.sh        （01-server-init.sh 会自动调用；建议每周 cron 跑一次）
+#       sudo bash cloudflare-ips.sh --no-ufw   只做第 1 步，不动防火墙
+#   注意：第 2 步只"添加"Cloudflare 放行规则，不会删除已有的 80/443 全放行规则；
+#   服务器上若已有 "80/tcp ALLOW Anywhere"，要手动删掉才真正只放行 Cloudflare
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "请用 root 运行"; exit 1; }
@@ -20,6 +23,7 @@ CONF=/etc/nginx/conf.d/cloudflare-realip.conf
 } > "$CONF"
 nginx -t && systemctl reload nginx
 echo "已写入 $CONF"
+[ "${1:-}" = "--no-ufw" ] && exit 0
 
 # ---- 2) ufw ----
 # 先删掉旧的 Cloudflare 规则（带注释 cloudflare 的）
