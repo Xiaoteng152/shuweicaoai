@@ -72,7 +72,7 @@ cat <<EOF
 
 改完后启动：
   docker compose up -d
-  docker compose logs dujiao-next | grep -i password    # 首次随机管理员密码
+  docker compose logs dujiao-next | grep 随机密码        # 首次随机管理员密码（日志里是中文"随机密码"）
 本地访问：http://localhost:${APP_PORT:-8080}   后台：http://localhost:${APP_PORT:-8080}<你的 admin_path>
 =====================================================================
 EOF

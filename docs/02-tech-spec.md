@@ -71,7 +71,8 @@ shuweicao/
 │   ├── gateway/              gateway 的 Nginx 配置（插入主题）
 │   ├── init.sh               初始化 .env / 目录 / 配置模板
 │   ├── backup.sh             加密备份
-│   └── upgrade.sh            升级 / 回滚
+│   ├── upgrade.sh            升级 / 回滚
+│   └── stripe-listen.sh      本地测试 Stripe 时转发回调（线上不用）
 └── server/                   只在线上服务器用
     ├── 01-server-init.sh     系统、Docker、防火墙、SSH 加固
     ├── 02-deploy-stack.sh    部署 stack 到 /opt/shuweicao
@@ -86,10 +87,10 @@ shuweicao/
 | --- | --- | --- |
 | `app.secret_key` | 随机 64 位十六进制 | 要和数据库一起备份 |
 | `jwt.secret` / `user_jwt.secret` | 各自随机，三个密钥互不相同 | 后台 / 用户登录令牌 |
-| `web.admin_path` | 随机路径，如 `/m-xxxxxxxxxxxx` | 默认 `/admin` 必须改 |
-| 数据库 | SQLite，`/app/db/dujiao.db` | 容器内路径 |
-| Redis | host `redis`，port 6379，密码同 `.env` | 容器名即主机名 |
-| `bootstrap.default_admin_*` 或 `DJ_DEFAULT_ADMIN_*` | 初始管理员 | 密码留空则首次启动随机生成并打印在日志 |
+| `web.admin_path` | 随机路径，如 `/m-xxxxxxxxxxxx` | 默认 `/admin` 必须改。官方镜像是前后台一体版本，此项生效（模板注释说 Docker 忽略，已过时） |
+| 数据库 | SQLite，`database.dsn: ./db/dujiao.db` | 容器工作目录 `/app`，即 `/app/db/dujiao.db` |
+| Redis | `redis.host` 和 `queue.host` 都填 `redis`，port 6379，两处密码都同 `.env` | 容器名即主机名 |
+| `bootstrap.default_admin_*` 或 `DJ_DEFAULT_ADMIN_*` | 初始管理员 | 密码留空则首次启动随机生成，只打印到控制台一次（`docker compose logs dujiao-next \| grep 随机密码`）；忘记用 `./dujiao-next admin reset-password --username admin` 重置 |
 | `server.mode` | 线上 `release` | |
 | `trusted_proxies` | `127.0.0.1`、`172.16.0.0/12` | 商城前有 gateway 容器，需信任 Docker 内网才能拿到顾客真实 IP |
 | CORS | 线上只允许 `https://shuweicao.org` | |
@@ -102,10 +103,41 @@ shuweicao/
 | 渠道 | Dujiao 渠道类型 | 回调 | 要点 |
 | --- | --- | --- | --- |
 | USDT | BEpusdt | BEpusdt → 商城回调 | BEpusdt 后台配收款地址 + TronGrid API Key；商城里填 BEpusdt 的地址和 Token |
-| Stripe | Stripe | Stripe Webhook → 后台渠道页给出的地址（带 `channel_id`） | 只订阅支付成功 / 失败事件；先 test key 后 live key |
+| Stripe | 官方 / Stripe（跳转） | `https://shuweicao.org/api/v1/payments/webhook/stripe?channel_id=<渠道ID>` | 先 test key 后 live key；细节见 7.1 |
 | 支付宝 | 支付宝官方 / 易支付 | `https://shuweicao.org/api/v1/payments/callback` | 官方需营业执照 + 备案域名 |
 
 通用要求：只认签名校验通过的回调；同一订单重复回调不能重复发货（验收必测）；Cloudflare 对 `/api/v1/payments` 路径放行，且 **Bot Fight Mode 保持关闭**（免费版无法对单个路径豁免它）。
+
+### 7.1 Stripe（2026-11-20 本地 test 模式已跑通，v1.5.4）
+
+**流程**：下单 → 商城调 Stripe 建 Checkout Session（金额按渠道汇率换算）→ 买家跳到 checkout.stripe.com 付款 → 跳回 `success_url`（商城自动带上 `order_no` 等参数）→ 到账两条路互为保险：
+
+1. Webhook：Stripe 推送事件，商城按 `whsec_` 验签后标记已付款并自动发货
+2. 主动查询：买家回到 `/pay` 时，前端调 `/payments/:id/capture`，商城向 Stripe 查 Session 状态
+
+**渠道配置（config_json）**
+
+| 键 | 值 | 说明 |
+| --- | --- | --- |
+| `secret_key` | `sk_test_…` → 上线换 `sk_live_…` | 必填 |
+| `publishable_key` | `pk_…` | 可空（跳转收银台用不到） |
+| `webhook_secret` | `whsec_…` | 必填。本地用 `stripe-listen.sh --print-secret`；线上用 Stripe 后台该 Webhook 端点自己的密钥，两者不同 |
+| `success_url` / `cancel_url` | `https://shuweicao.org/pay` | 必填。本地填 `http://localhost:<APP_PORT>/pay` |
+| `api_base_url` | `https://api.stripe.com` | 默认 |
+| `target_currency` / `exchange_rate` | `USD` / 如 `0.14` | 商城人民币标价 → 按固定汇率收美元；不会自动更新，需定期手动改 |
+| `payment_method_types` | 空或 `["card"]` | 空 = 用 Stripe 后台开着的全部方式（动态支付方式） |
+| `webhook_tolerance_seconds` | 默认 300 | 回调时间戳允许误差 |
+
+**Webhook 订阅事件**：`checkout.session.completed`、`checkout.session.async_payment_succeeded`、`checkout.session.async_payment_failed`、`checkout.session.expired`（`payment_intent.*` 商城也认，但 Checkout 流程不需要）。
+
+**已验证**：测试卡 4242 付款 → 回调 200 → 订单完成、卡密 -1；`stripe events resend` 重发同一事件 → 日志 `payment_callback_idempotent_success`，不重复发货；伪造签名 → 拒绝；买家用当地货币付款（Stripe Adaptive Pricing，测的是越南盾）→ Session 仍按 USD 记账，商城正常入账。
+
+**注意**
+
+- 回调验签失败时商城返回 **HTTP 200**（业务码 400 写在 body 里），Stripe 后台会显示投递成功、也不会重试。上线后要看商城后台订单是否真的变成已付款，或看日志 `stripe_webhook_processed`
+- Stripe 默认开着多种支付方式（Amazon Pay、Cash App Pay、美国银行转账、Klarna 等）。银行转账这类延迟到账的方式，到账前订单不发货；建议只留银行卡（`payment_method_types: ["card"]`，仍包含 Apple Pay / Google Pay）
+- 上线可改用受限密钥（`rk_live_…`），只开 Checkout Sessions 写权限和 PaymentIntents 读权限，换上后先跑一单确认
+- 本地开着代理时 Stripe CLI 可能连不上，`stripe-listen.sh` 会自动改为直连
 
 ## 8. 安全
 

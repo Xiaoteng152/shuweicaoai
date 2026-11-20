@@ -6,3 +6,5 @@ stack/backups/
 *.pem
 *.key
 .DS_Store
+# init.sh 下载的官方模板，按版本重新下载即可
+stack/config/config.yml.example
