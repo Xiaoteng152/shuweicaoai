@@ -26,6 +26,18 @@ server {
         add_header Cache-Control "public, max-age=604800";
     }
 
+    # XorPay 付款回调 → 转接服务（只对外开放 /xorpay/，下单接口 /mapi.php 只在 Docker 内网）
+    # 用变量 + Docker 内置 DNS：转接服务没启动时 gateway 也能正常启动
+    location ^~ /xorpay/ {
+        resolver 127.0.0.11 valid=30s ipv6=off;
+        set $xorpay_upstream http://xorpay-bridge:8080;
+        proxy_pass $xorpay_upstream;
+        proxy_set_header Host            $host;
+        proxy_set_header X-Real-IP       $sw_client_ip;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 30s;
+    }
+
     location / {
         proxy_pass http://dujiao-next:8080;
         proxy_http_version 1.1;

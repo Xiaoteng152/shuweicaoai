@@ -65,6 +65,24 @@ services:
       - ./theme:/usr/share/nginx/html/sw-theme:ro
     networks: [dujiao-net]
 
+  # XorPay 转接服务（支付宝 / 微信，个人可开、不用备案）：把 XorPay 转成 Dujiao 自带的「易支付」协议
+  # 说明见 xorpay-bridge/bridge.py；不用 XorPay 可以不启动，gateway 不依赖它
+  xorpay-bridge:
+    image: python:3.12-alpine
+    container_name: shuweicao-xorpay
+    restart: unless-stopped
+    command: ["python", "-I", "-u", "/app/bridge.py"]
+    environment:
+      XORPAY_AID: ${XORPAY_AID:-}
+      XORPAY_APP_SECRET: ${XORPAY_APP_SECRET:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      XORPAY_API_BASE: ${XORPAY_API_BASE:-https://xorpay.com}
+      XORPAY_EXPIRE: ${XORPAY_EXPIRE:-600}
+    volumes:
+      - ./xorpay-bridge/bridge.py:/app/bridge.py:ro
+      - ./data/xorpay-bridge:/data
+    networks: [dujiao-net]
+
   bepusdt:
     image: v03413/bepusdt:${BEPUSDT_TAG:-latest}
     container_name: shuweicao-bepusdt

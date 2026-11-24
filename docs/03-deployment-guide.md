@@ -127,6 +127,14 @@ bash /root/shuweicao/server/03-enable-site.sh
 5. Stripe 后台 → Settings → Payment methods：建议只留银行卡（Apple Pay / Google Pay 属于银行卡），关掉银行转账、先买后付等延迟到账或拒付风险高的方式；决定是否保留"按买家当地货币显示"（Adaptive Pricing）
 6. 开启 Radar 和 3D Secure
 
+**支付宝（XorPay，不用备案）**
+
+1. 开通 XorPay 个人收款，确认支付宝签约邮件，预充一点余额
+2. 服务器部署转接服务：`cd /root/shuweicao && git pull && cd server && bash 02-deploy-stack.sh`，再 `cd /opt/shuweicao && docker compose up -d --force-recreate gateway`（让 `/xorpay/` 路由生效）
+3. 在自己电脑终端运行 `ssh -t root@<服务器IP> 'cd /opt/shuweicao && ./xorpay-setup.sh'`，填 aid / app secret
+4. 后台新建易支付渠道（字段见 [05-alipay-xorpay.md 第 5.3 节](05-alipay-xorpay.md)），单笔上限 1000
+5. 自己付一笔小额：后台订单变「已完成」、卡密自动发出
+
 ### 第 9 步：备份、监控、定时任务
 
 ```bash

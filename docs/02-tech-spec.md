@@ -72,7 +72,9 @@ shuweicao/
 │   ├── init.sh               初始化 .env / 目录 / 配置模板
 │   ├── backup.sh             加密备份
 │   ├── upgrade.sh            升级 / 回滚
-│   └── stripe-listen.sh      本地测试 Stripe 时转发回调（线上不用）
+│   ├── stripe-listen.sh      本地测试 Stripe 时转发回调（线上不用）
+│   ├── xorpay-setup.sh       填 XorPay 账号并启动转接服务
+│   └── xorpay-bridge/        XorPay ⇄ 易支付 转接服务（bridge.py），附假 XorPay（mock_xorpay.py）和测试
 └── server/                   只在线上服务器用
     ├── 01-server-init.sh     系统、Docker、防火墙、SSH 加固
     ├── 02-deploy-stack.sh    部署 stack 到 /opt/shuweicao
@@ -104,7 +106,8 @@ shuweicao/
 | --- | --- | --- | --- |
 | USDT | BEpusdt | BEpusdt → 商城回调 | BEpusdt 后台配收款地址 + TronGrid API Key；商城里填 BEpusdt 的地址和 Token |
 | Stripe | 官方 / Stripe（跳转） | `https://shuweicao.org/api/v1/payments/webhook/stripe?channel_id=<渠道ID>` | 先 test key 后 live key；细节见 7.1 |
-| 支付宝 | 支付宝官方 / 易支付 | `https://shuweicao.org/api/v1/payments/callback` | 官方需营业执照 + 备案域名 |
+| 支付宝（XorPay） | 易支付 v1（扫码），网关 = 内网 `http://xorpay-bridge:8080` | XorPay → `https://shuweicao.org/xorpay/notify` → 转接服务 → 内网 `http://dujiao-next:8080/api/v1/payments/callback` | 不用备案 / 执照；转接服务把 XorPay 转成易支付协议，不改官方代码。细节见 [05-alipay-xorpay.md](05-alipay-xorpay.md) |
+| 支付宝（官方） | 支付宝官方 / 易支付 | `https://shuweicao.org/api/v1/payments/callback` | 官方需营业执照 + 备案域名 |
 
 通用要求：只认签名校验通过的回调；同一订单重复回调不能重复发货（验收必测）；Cloudflare 对 `/api/v1/payments` 路径放行，且 **Bot Fight Mode 保持关闭**（免费版无法对单个路径豁免它）。
 

@@ -7,16 +7,17 @@ SRC="$SCRIPT_DIR/../stack"
 DEST=/opt/shuweicao
 [ "$(id -u)" -eq 0 ] || { echo "请用 root 运行"; exit 1; }
 
-mkdir -p "$DEST/config" "$DEST/gateway" "$DEST/theme"
-for f in docker-compose.yml .env.example init.sh backup.sh upgrade.sh; do
+mkdir -p "$DEST/config" "$DEST/gateway" "$DEST/theme" "$DEST/xorpay-bridge"
+for f in docker-compose.yml .env.example init.sh backup.sh upgrade.sh xorpay-setup.sh; do
   install -m 755 "$SRC/$f" "$DEST/$f"
 done
 chmod 644 "$DEST/docker-compose.yml" "$DEST/.env.example"
 cp -n "$SRC/config/README.md" "$DEST/config/" 2>/dev/null || true
-# gateway 配置和主题是代码，每次部署都覆盖（docker-compose.yml 会挂载这两个目录）
+# gateway 配置、主题、XorPay 转接服务是代码，每次部署都覆盖（docker-compose.yml 会挂载它们）
 cp -R "$SRC/gateway/." "$DEST/gateway/"
 cp -R "$SRC/theme/." "$DEST/theme/"
-chmod -R a+rX "$DEST/gateway" "$DEST/theme"
+install -m 644 "$SRC/xorpay-bridge/bridge.py" "$DEST/xorpay-bridge/bridge.py"
+chmod -R a+rX "$DEST/gateway" "$DEST/theme" "$DEST/xorpay-bridge"
 
 cd "$DEST"
 ./init.sh

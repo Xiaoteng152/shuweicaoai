@@ -37,6 +37,14 @@
 - **Stripe（test 模式，本地）**：用的是 Stripe 沙盒（美国，USD；正式账户资料未提交）。后台渠道 ID 1：`信用卡 / Card（Stripe）`，按 `USD` + 汇率 `0.14` 收款，成功 / 取消跳转都是 `http://localhost:8088/pay`。新增 `stack/stripe-listen.sh`（用 Stripe CLI 把回调转发到本机），`.env` 新增 `STRIPE_TEST_SECRET_KEY` / `STRIPE_CHANNEL_ID`（只给脚本用）。测试商品「Stripe 测试商品（勿买）」¥10，3 条假卡密已卖掉 2 条
   - 已验证：测试卡付款 → 回调 200 → 自动发卡 → 游客查单可见；重发同一事件不重复发货；伪造签名被拒；买家用当地货币（越南盾）付款正常入账
   - 详细做法：[00-local-setup 第 7 节](docs/00-local-setup.md)、[技术 spec 7.1](docs/02-tech-spec.md)、[部署指南第 8 步](docs/03-deployment-guide.md)
+- **线上部署（2026-11-20）**：商城已上线 https://shuweicao.org ，替换了用户原来的"形象画布"网站（用户同意）
+  - 服务器上 `/root/shuweicao` 是本仓库的 clone，`/opt/shuweicao` 是运行目录（用 `server/02-deploy-stack.sh` 部署），起了 redis + dujiao-next + gateway；`TAG=v1.5.4`，`server.mode: release`，`email` 暂关（SMTP 未配）
+  - Docker 用 Ubuntu 软件源安装（`docker.io` + `docker-compose-v2`）；**没跑** `01-server-init.sh`（会全量升级系统、改 SSH，风险大），防火墙 / SSH 保持原样（ufw 放行 22/80/443，SSH 仅密钥）
+  - 证书复用服务器已有的 Let's Encrypt（certbot 自动续期，只含 shuweicao.org / www）；Nginx 站点 `shuweicao.conf` + `cloudflare-realip.conf`
+  - 形象画布已停用但保留：`systemctl enable --now image-gen` + 把 `/etc/nginx/sites-available/image-gen` 链回 `sites-enabled`（并移走 shuweicao.conf）即可恢复
+  - 线上后台用户还没登录过：合规声明、支付渠道、商品都要用户本人在后台操作（初始密码：服务器上 `cd /opt/shuweicao && docker compose logs dujiao-next | grep 随机密码`）
+  - 服务器 512 MB 内存 + 2 GB swap，磁盘只剩约 1.3 GB，注意别再加大镜像
+- **支付宝（XorPay，2026-11-24）**：同行（如 xuegaogx.cc）不备案也能收支付宝，靠的是 XorPay 个人支付接口（个人身份证即可、钱直接进自己支付宝、个人单笔 ≤ ¥1000）。新增转接服务 `stack/xorpay-bridge/`（XorPay ⇄ Dujiao 自带「易支付」协议，不改官方代码）+ `stack/xorpay-setup.sh`；本地用假 XorPay 跑通全流程。详见 [docs/05-alipay-xorpay.md](docs/05-alipay-xorpay.md)
 
 ## 4. 未验证 / 已知风险（接手请优先关注）
 
@@ -51,6 +59,7 @@
 | 本机代理 | 用户 Mac 开着代理，它时而连不上 Stripe，会让 Stripe CLI 卡在 "Getting ready…"；直连 Stripe 是通的。`stripe-listen.sh` 已自动改直连 |
 | BEpusdt | 用 `v03413/bepusdt` 镜像、数据卷 `/var/lib/bepusdt`、容器端口 8080 映射到 8090；首次配置走它的 Web 向导，细节未实测 |
 | Stripe | 转售账号类业务可能被判禁止行业；文档已提示 USDT 为主通道。现在用的是沙盒账户，正式账户还要提交资料审核 |
+| XorPay 只用假服务测过 | 转接服务按 XorPay 官方文档实现（下单 `/api/pay/{aid}`、回调签名 `aoid+order_id+pay_price+pay_time+secret`），真实账号还没跑过一单；开通后先付 ¥0.01～¥1 验收。收款实名绑定用户本人支付宝，卖账号类商品有被风控冻结的风险 |
 | 许可证 | 已确认 **GPL v3**（后台合规声明里写明）。fork 二次开发后对外提供服务前，评估开源义务 |
 
 ## 5. 访问与工具现状（重要，省得再踩坑）
@@ -68,8 +77,9 @@
 1. **决定仓库是否改为私有**（现在是公开的，业务文档对所有人可见）
 2. **阶段 0 收尾**：后台把前台模板切到 vault 看主题实际效果；改管理员密码 + 开 TOTP；跑一次 `backup.sh`
 3. **用户待拍板**：GPT 成品号的名称 / 价格 / 货源 / 质保；有无营业执照；Stripe 主体；售后 TG 和邮箱（`stack/theme/sw-config.js` 里现在是占位 `@your_tg_id`、`support@shuweicao.org`）；**Stripe 收款**：美元汇率定多少、是否只收银行卡（关掉银行转账 / 先买后付）、是否保留"按买家当地货币显示"
-4. **阶段 1 准备**（用户操作）：Droplet 升 1 GB；Cloudflare 添加站点 + Spaceship 改 NS + 3 条 A 记录；生成源站证书；提交 Stripe 正式账户资料
+4. **阶段 1 收尾**（用户操作）：Droplet 建议升 1 GB；提交 Stripe 正式账户资料（Cloudflare 接入、NS、证书已完成）
 5. **Stripe 上线**（部署之后）：按 [部署指南第 8 步](docs/03-deployment-guide.md) 建线上渠道和 Webhook 端点 → 测试卡跑通 → 换 live key + live Webhook → 真实小额验收
+5a. **支付宝（XorPay）上线**：用户开通 XorPay → 服务器运行 `./xorpay-setup.sh` 填 aid / app secret → 后台建易支付渠道 → 小额实测。步骤见 [docs/05 第 5 节](docs/05-alipay-xorpay.md)
 6. ~~补传两张图片~~、~~本地改动同步到仓库~~：2026-11-20 已从用户 Mac 用 git 推送
 
 ## 7. 已作废的东西（不要再用）
