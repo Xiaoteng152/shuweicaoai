@@ -4,8 +4,10 @@
   MOCK_SECRET=<和 .env 里 XORPAY_APP_SECRET 相同> python3 mock_xorpay.py   # 默认只监听 127.0.0.1:9999
 
   POST /api/pay/<aid>             模拟下单：校验签名，返回假的支付宝二维码
-  POST /mock/pay?order_id=X       模拟买家付款：按 XorPay 格式签名后回调下单时的 notify_url
+  GET  /api/query/<aoid>          模拟查单：付款前 new，付款后 payed，不认识的单号 not_exist
+  POST /mock/pay?order_id=X       模拟买家付款：标记已付款，按 XorPay 格式签名后回调下单时的 notify_url
        &price=Y（可选，模拟金额不符）  返回转接服务的响应
+  POST /mock/forge?order_id=X     模拟伪造回调：签名正确但不标记已付款（转接服务查单后应拒绝）
 本地测试时 .env 里设 XORPAY_API_BASE=http://host.docker.internal:9999，转接服务就会把下单请求发到这里。
 """
 import hashlib
@@ -54,14 +56,17 @@ class Handler(BaseHTTPRequestHandler):
             if old and old["price"] != p["price"]:
                 return self._json(200, {"status": "order_exist"})
             aoid = old["aoid"] if old else uuid.uuid4().hex
-            ORDERS[p["order_id"]] = {"aoid": aoid, "price": p["price"], "notify_url": p["notify_url"]}
+            ORDERS[p["order_id"]] = {"aoid": aoid, "price": p["price"], "notify_url": p["notify_url"],
+                                     "status": old["status"] if old else "new"}
             print(f"[mock] 下单 order_id={p['order_id']} price={p['price']} pay_type={p['pay_type']}", flush=True)
             return self._json(200, {"status": "ok", "aoid": aoid, "expires_in": int(p.get("expire") or 7200),
                                     "info": {"qr": f"https://qr.alipay.com/mock{aoid[:12]}"}})
-        if path == "/mock/pay":
+        if path in ("/mock/pay", "/mock/forge"):
             order = ORDERS.get(p.get("order_id", ""))
             if not order:
                 return self._json(404, {"error": "order not found"})
+            if path == "/mock/pay":
+                order["status"] = "payed"
             pay_price = p.get("price") or order["price"]
             pay_time = time.strftime("%Y-%m-%d %H:%M:%S")
             form = {"aoid": order["aoid"], "order_id": p["order_id"], "pay_price": pay_price, "pay_time": pay_time,
@@ -76,6 +81,15 @@ class Handler(BaseHTTPRequestHandler):
                 result = {"notify_status": e.code, "notify_body": e.read().decode()}
             print(f"[mock] 回调 order_id={p['order_id']} pay_price={pay_price} → {result}", flush=True)
             return self._json(200, result)
+        return self._json(404, {"error": "not found"})
+
+    def do_GET(self):
+        path = urllib.parse.urlsplit(self.path).path
+        if path.startswith("/api/query/"):
+            aoid = urllib.parse.unquote(path.rsplit("/", 1)[-1])
+            status = next((o["status"] for o in ORDERS.values() if o["aoid"] == aoid), "not_exist")
+            print(f"[mock] 查单 aoid={aoid[:12]}… → {status}", flush=True)
+            return self._json(200, {"status": status})
         return self._json(404, {"error": "not found"})
 
     def log_message(self, fmt, *args):

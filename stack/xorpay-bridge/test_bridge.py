@@ -35,18 +35,31 @@ def post(url, params):
 
 class FakeXorPay(BaseHTTPRequestHandler):
     calls = []
+    query_status = {}    # aoid → 查单返回的状态；不在表里 = "new"（没付款）
+    create_status = None  # 设了就让下单返回这个错误状态
+
+    def _send_json(self, body, code=200):
+        data = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         p = dict(urllib.parse.parse_qsl(self.rfile.read(int(self.headers["Content-Length"])).decode()))
         FakeXorPay.calls.append((self.path, p))
+        if FakeXorPay.create_status:
+            return self._send_json({"status": FakeXorPay.create_status, "info": "ACQ.ACCESS_FORBIDDEN"})
         ok = p["sign"] == bridge.xorpay_pay_sign(p["name"], p["pay_type"], p["price"], p["order_id"], p["notify_url"], SECRET)
-        body = {"status": "ok", "aoid": "AOID-" + p["order_id"], "expires_in": 600,
-                "info": {"qr": "https://qr.alipay.com/test" + p["order_id"]}} if ok else {"status": "sign_error"}
-        data = json.dumps(body).encode()
-        self.send_response(200)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        self._send_json({"status": "ok", "aoid": "AOID-" + p["order_id"], "expires_in": 600,
+                         "info": {"qr": "https://qr.alipay.com/test" + p["order_id"]}} if ok else {"status": "sign_error"})
+
+    def do_GET(self):
+        aoid = urllib.parse.unquote(self.path.rsplit("/", 1)[-1])
+        status = FakeXorPay.query_status.get(aoid, "new")
+        if status == "BROKEN":
+            return self._send_json({"error": "boom"}, code=500)
+        self._send_json({"status": status})
 
     def log_message(self, *a):
         pass
@@ -105,6 +118,7 @@ class FlowTests(unittest.TestCase):
     def setUp(self):
         FakeDujiao.received.clear()
         FakeDujiao.reply = "success"
+        FakeXorPay.create_status = None
 
     def create(self, order, money="10.00", key=SECRET, pid=AID, typ="alipay"):
         p = {"pid": pid, "type": typ, "out_trade_no": order, "notify_url": self.dj_url + "/cb",
@@ -115,10 +129,37 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 200)
         return json.loads(body)
 
-    def notify(self, order, price="10.00", secret=SECRET):
+    def notify(self, order, price="10.00", secret=SECRET, paid=True):
         aoid, t = "AOID-" + order, "2026-11-24 12:00:00"
+        if paid:
+            FakeXorPay.query_status.setdefault(aoid, "payed")   # XorPay 查单：已付款
         return post(self.url + "/xorpay/notify", {"aoid": aoid, "order_id": order, "pay_price": price, "pay_time": t,
                                                    "sign": bridge.xorpay_notify_sign(aoid, order, price, t, secret)})
+
+    def test_notify_rejected_when_xorpay_says_unpaid(self):
+        self.create("DJP007")
+        self.assertEqual(self.notify("DJP007", paid=False), (400, "not paid"))   # 签名对，但查单说没付款
+        self.assertEqual(FakeDujiao.received, [])
+
+    def test_query_failure_returns_502_then_retry_succeeds(self):
+        self.create("DJP008")
+        FakeXorPay.query_status["AOID-DJP008"] = "BROKEN"
+        self.assertEqual(self.notify("DJP008"), (502, "query failed"))
+        self.assertEqual(FakeDujiao.received, [])
+        FakeXorPay.query_status["AOID-DJP008"] = "payed"
+        self.assertEqual(self.notify("DJP008"), (200, "ok"))
+
+    def test_fee_error_counts_as_paid(self):
+        self.create("DJP009")
+        FakeXorPay.query_status["AOID-DJP009"] = "fee_error"
+        self.assertEqual(self.notify("DJP009"), (200, "ok"))
+        self.assertEqual(FakeDujiao.received[-1]["out_trade_no"], "DJP009")
+
+    def test_create_error_has_hint(self):
+        FakeXorPay.create_status = "alipay_api_error"
+        r = self.create("DJP010")
+        self.assertEqual(r["code"], -1)
+        self.assertIn("支付宝未签约", r["msg"])
 
     def test_full_flow_and_duplicate(self):
         r = self.create("DJP001")

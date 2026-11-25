@@ -5,9 +5,11 @@
   买家付款 → XorPay ──POST /xorpay/notify（MD5 签名）──▶ 本服务 ──POST notify_url（易支付回调）──▶ Dujiao
 
 - /mapi.php 只在 Docker 内网可达（gateway 只对外转发 /xorpay/）
-- /xorpay/notify 经 gateway 对外，验 XorPay 签名、核对金额后才通知 Dujiao；
-  Dujiao 没回 success 就回 XorPay 502，让 XorPay 按 1/2/4/16/64/300 分钟重试
+- /xorpay/notify 经 gateway 对外：验 XorPay 签名、核对金额，再按官方文档建议用平台单号向 XorPay 查一次
+  （/api/query/{aoid}，确认已付款）才通知 Dujiao；查询失败或 Dujiao 没回 success 就回 XorPay 502，
+  让 XorPay 按 1/2/4/16/64/300 分钟重试
 - 订单记录存在 SQLite（DB_PATH），容器重启不丢
+- 对接依据：https://xorpay.com/htdocs/xorpay.md（XorPay 官方对接说明）
 
 环境变量（见 stack/.env.example）：
   XORPAY_AID          XorPay 后台的 aid      ＝ Dujiao 易支付渠道的「商户号」
@@ -35,6 +37,37 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PAY_TYPES = {"alipay": "alipay", "wxpay": "native"}  # 易支付 type → XorPay pay_type
 MAX_BODY = 64 * 1024
 NAME_MAX = 60
+
+# 查单（/api/query/{aoid}）返回的状态。fee_error = 买家已付款，只是 XorPay 平台费没扣成（余额不足）
+PAID_STATUSES = {"payed", "success", "fee_error"}
+UNPAID_STATUSES = {"new", "not_exist", "expire"}
+
+# XorPay 下单失败时的处理建议（来自官方对接说明的错误码表）
+XORPAY_HINTS = {
+    "fee_error": "XorPay 余额不足：去 xorpay.com 充值（平台手续费从余额扣）",
+    "sign_error": "签名错误：检查 XORPAY_APP_SECRET 是否和 XorPay 后台一致（不能有空格）",
+    "missing_argument": "缺少参数",
+    "pay_type_error": "支付类型错误",
+    "order_payed": "这笔订单已经付过款",
+    "order_exist": "订单号已存在且参数不同",
+    "order_expire": "订单已过期，请重新下单",
+    "app_off": "XorPay 账号被冻结：联系 XorPay 客服",
+    "aid_not_exist": "aid 不存在：检查 XORPAY_AID",
+    "no_contract": "XorPay 还没签约",
+    "no_alipay_contract": "支付宝还没签约",
+    "wechat_api_error": "微信接口报错，可能被风控：联系 XorPay 客服",
+}
+
+
+def xorpay_hint(status, info=""):
+    info = str(info or "")
+    if status == "alipay_api_error":
+        if "ACCESS_FORBIDDEN" in info:
+            return "支付宝未签约：去支付宝 App（或签约邮件）完成签约"
+        if "invalid-app-auth-token" in info:
+            return "支付宝授权过期：XorPay 后台 → 支付宝资料 → 第 3 步扫码授权"
+        return "支付宝接口报错：联系 XorPay 客服"
+    return XORPAY_HINTS.get(status, "")
 
 
 @dataclass
@@ -146,10 +179,31 @@ def post_form(url, params, timeout=15, use_env_proxy=True):
         return resp.status, resp.read(64 * 1024).decode("utf-8", "replace")
 
 
+def get_json(url, timeout=10):
+    req = urllib.request.Request(url, headers={"User-Agent": "shuweicao-xorpay-bridge/1"})
+    with urllib.request.build_opener().open(req, timeout=timeout) as resp:
+        return json.loads(resp.read(64 * 1024).decode("utf-8", "replace"))
+
+
 class Bridge:
     def __init__(self, cfg, store):
         self.cfg = cfg
         self.store = store
+
+    def confirm_paid(self, aoid):
+        """按官方文档建议，回调后用平台单号再查一次。返回 (True/False/None, 状态)，None = 查询失败。"""
+        if not aoid:
+            return False, "missing aoid"
+        try:
+            resp = get_json(f"{self.cfg.api_base}/api/query/{urllib.parse.quote(aoid, safe='')}")
+        except Exception as e:  # noqa: BLE001 - 网络 / JSON 错误：让 XorPay 稍后重试
+            return None, f"{type(e).__name__}: {str(e)[:120]}"
+        status = str(resp.get("status", "")).strip()
+        if status in PAID_STATUSES:
+            return True, status
+        if status in UNPAID_STATUSES:
+            return False, status
+        return None, status or "empty status"
 
     # ---------- Dujiao → 本服务：创建支付 ----------
     def create(self, p):
@@ -194,7 +248,9 @@ class Bridge:
         except Exception as e:  # noqa: BLE001 - 网络 / JSON 错误都按下单失败处理
             return fail(f"请求 XorPay 失败：{type(e).__name__}", out_trade_no=out_trade_no, detail=str(e)[:200])
         if resp.get("status") != "ok":
-            return fail(f"XorPay 返回 {resp.get('status')} {resp.get('info', '')}".strip(), out_trade_no=out_trade_no)
+            status, info = str(resp.get("status", "")), resp.get("info", "")
+            hint = xorpay_hint(status, info)
+            return fail(f"XorPay 返回 {status}" + (f"：{hint}" if hint else ""), out_trade_no=out_trade_no, info=str(info)[:200])
         qr = str((resp.get("info") or {}).get("qr", "")).strip()
         aoid = str(resp.get("aoid", "")).strip()
         if not qr:
@@ -237,6 +293,20 @@ class Bridge:
             params = {"pid": cfg.aid, "trade_no": aoid, "out_trade_no": order_id, "type": "alipay",
                       "money": money2(pay_price) or pay_price, "trade_status": "TRADE_SUCCESS"}
             notify_url = cfg.fallback_notify_url
+
+        # 官方文档建议：回调后再查一次，确认 XorPay 那边这笔确实已付款（防止密钥泄露后被伪造回调）
+        paid, qstatus = self.confirm_paid(aoid)
+        if paid is None:
+            log("notify_query_failed", order_id=order_id, aoid=aoid, detail=qstatus)
+            return 502, "query failed"
+        if not paid:
+            log("notify_not_paid", order_id=order_id, aoid=aoid, status=qstatus)
+            if row:
+                self.store.update(order_id, last_error=f"query status {qstatus}")
+            return 400, "not paid"
+        if qstatus == "fee_error":
+            log("xorpay_fee_error", order_id=order_id, hint=XORPAY_HINTS["fee_error"])
+
         params["sign"] = epay_sign(params, cfg.secret)
         params["sign_type"] = "MD5"
 

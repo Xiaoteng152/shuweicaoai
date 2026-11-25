@@ -1,6 +1,7 @@
 # 支付宝收款：XorPay（不用备案、不用营业执照）
 
 > 2026-11-24 · 本地已用假 XorPay 跑通全流程；线上等你开通 XorPay 后填账号即可用。业务背景见 [01-business-spec 第 5 节](01-business-spec.md)。
+> 2026-11-25 · 已按 XorPay 官方对接说明 <https://xorpay.com/htdocs/xorpay.md> 逐项核对；补上「回调后查单确认」和错误码提示。用户没有营业执照，走个人（小微商户）开通。
 
 ## 1. 为什么用 XorPay
 
@@ -16,7 +17,7 @@
 | --- | --- |
 | 谁能开 | 个人、个体户、企业都可以；个人用自己的支付宝 / 微信签约 |
 | 开通费 | ¥100，开通成功不退 |
-| 费率 | 支付宝官方 0.38%（每笔直接扣）+ XorPay 平台费：体验版 1.2%（¥0/月）、基础版 1%（¥10/月）、标准版 0.8%（¥30/月）、高级版 0.6%（¥60/月） |
+| 费率 | 支付宝 / 微信官方费（每笔直接扣）：线下类目 0.38%、线上类目 0.6% + XorPay 平台费：体验版 1.2%（¥0/月）、基础版 1%（¥10/月）、标准版 0.8%（¥30/月）、高级版 0.6%（¥60/月） |
 | 平台费怎么扣 | 从 XorPay 账户**预充值余额**里扣；余额不足时下单会失败（`fee_error`） |
 | 个人限额 | 支付宝单笔 ¥1000、单日 ¥5 万；微信单笔 ¥2 万、单日 ¥5 万。**办个体户执照后不限额** |
 | 到账 | 支付宝即时到账（进签约支付宝的余额）；微信 T+1 到银行卡 |
@@ -43,8 +44,9 @@ Dujiao-Next 官方版本没有 XorPay 渠道（雪糕是自己改了源码）。
 
 - 转接服务是 `docker-compose.yml` 里的 `xorpay-bridge` 容器（官方 `python:3.12-alpine` 镜像，不用自己打包）
 - 对外只开放 `/xorpay/` 这一个路径（gateway 转发）；下单接口 `/mapi.php` 只在 Docker 内网
-- 安全：Dujiao → 转接服务验签名和商户号；XorPay → 转接服务验 XorPay 签名并核对金额；转接服务 → Dujiao 再签名，Dujiao 再核对金额和币种
-- Dujiao 没回 `success` 时，转接服务回 XorPay 502，XorPay 会按 1/2/4/16/64/300 分钟重试 6 次
+- 安全：Dujiao → 转接服务验签名和商户号；XorPay → 转接服务验 XorPay 签名、核对金额，再按官方文档建议用平台单号向 XorPay **查一次单**（`/api/query/{aoid}`，状态是已付款才放行，防止密钥泄露后被伪造回调）；转接服务 → Dujiao 再签名，Dujiao 再核对金额和币种
+- 查单失败或 Dujiao 没回 `success` 时，转接服务回 XorPay 502，XorPay 会按 1/2/4/16/64/300 分钟重试 6 次
+- 下单失败时日志里带处理建议（如 `fee_error` → 去充值、`ACCESS_FORBIDDEN` → 去支付宝签约）
 - 同一订单重复打开付款页，复用同一张二维码；二维码默认 10 分钟过期（`XORPAY_EXPIRE`，Dujiao 订单 15 分钟过期）
 - 订单记录存在 `data/xorpay-bridge/bridge.db`（SQLite），日志：`docker compose logs -f xorpay-bridge`
 
@@ -52,10 +54,14 @@ Dujiao-Next 官方版本没有 XorPay 渠道（雪糕是自己改了源码）。
 
 ### 5.1 你来做：开通 XorPay
 
-1. 到 xorpay.com 注册，选「个人」，按提示提交身份证、银行卡，用**你自己的支付宝**签约；交开通费 ¥100
-2. 支付宝会发一封签约邮件，**点进去确认**（不确认会报 `ACCESS_FORBIDDEN`）
+1. 到 <https://xorpay.com/login> 注册，按「个人」填支付宝申请资料，用**你自己的支付宝**签约；交开通费 ¥100
+   - 个人不需要营业执照；**办公照片拍你居住或办公的地方即可**（官方说明原话），不能是产品截图、不能有水印；办公地址填照片所在地的真实地址
+   - 资料要真实（表单有承诺勾选），类目选和实际卖的东西最接近的
+   - 审核：支付宝几小时，微信几分钟；开通微信后会有**机器人来电测试，按 1**
+2. 支付宝会发一封签约邮件，**点进去确认**（不确认会报 `ACCESS_FORBIDDEN`）；后台「支付宝资料」第 3 步还有扫码授权
 3. XorPay 账户里**预充一点余额**（平台费从这里扣，比如先充 ¥20）
-4. 后台记下 `aid` 和 `app secret`（不要发到聊天里）
+4. 后台 <https://xorpay.com/main#conf> 记下 `aid` 和 `app secret`（不要发到聊天里，也不要放到前端代码里）
+5. 有问题找 XorPay 客服：微信 `xorpay_com`，QQ `1701943006`
 
 ### 5.2 你来做：把账号填到服务器（一条命令）
 
@@ -111,14 +117,18 @@ curl -X POST "http://127.0.0.1:9999/mock/pay?order_id=<out_trade_no>&price=9.99"
 
 2026-11-24 已验证：下单出二维码 → 模拟付款 → 回调经 gateway 到转接服务 → Dujiao 订单完成、自动发卡、买家页面自动显示卡密；重复通知不重复发货；金额被改、伪造签名都被拒绝；外网访问不到 `/mapi.php`。
 
+2026-11-25 补测「回调后查单」：签名正确但 XorPay 查单说未付款的回调（`POST /mock/forge?order_id=X` 模拟）被拒绝、商城没收到；真实付款查单为已付款后才转给商城、自动发卡。线上服务器到 xorpay.com 的网络已确认可达（查单接口 1～2 秒返回）。单元测试 13 个全部通过。
+
 ## 7. 常见问题
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | 下单提示「XorPay 返回 fee_error」 | XorPay 余额不足，去充值 |
-| 「no_alipay_contract」/「ACCESS_FORBIDDEN」 | 支付宝没签约，去邮箱点签约邮件 |
+| 「no_alipay_contract」/「ACCESS_FORBIDDEN」 | 支付宝没签约，去邮箱点签约邮件 / 支付宝 App 签约 |
+| 「invalid-app-auth-token」 | 支付宝授权过期：XorPay 后台 → 支付宝资料 → 第 3 步扫码授权 |
+| 「app_off」/「wechat_api_error」/ 扫码显示 402 | 账号冻结或可能被风控，联系 XorPay 客服 |
 | 「签名错误」/「商户号与 XORPAY_AID 不一致」 | 后台渠道的商户号、商户密钥要和服务器 `.env` 里的一模一样；改完重跑 `xorpay-setup.sh` |
 | 「转接服务未配置」 | 服务器上还没运行 `xorpay-setup.sh` |
-| 付了款订单没变 | 看 `docker compose logs xorpay-bridge`：`notify_bad_sign`（密钥不一致）、`notify_amount_mismatch`（金额不符，人工核对后在后台手动确认）、`notify_forward_failed`（Dujiao 没回 success，XorPay 会自动重试） |
+| 付了款订单没变 | 看 `docker compose logs xorpay-bridge`：`notify_bad_sign`（密钥不一致）、`notify_amount_mismatch`（金额不符，人工核对后在后台手动确认）、`notify_not_paid`（XorPay 查单说没付款，多半是伪造回调）、`notify_query_failed` / `notify_forward_failed`（查单失败或 Dujiao 没回 success，XorPay 会自动重试） |
 | 买家打不开付款页 / 白屏 | 让买家关掉 VPN |
 | 超过 ¥1000 的订单没有支付宝 | 个人身份单笔上限；办个体户后把渠道单笔上限改大 |
