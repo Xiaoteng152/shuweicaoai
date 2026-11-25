@@ -82,7 +82,7 @@
 2. **阶段 0 收尾**：后台把前台模板切到 vault 看主题实际效果；改管理员密码 + 开 TOTP；跑一次 `backup.sh`
 3. **用户待拍板**：GPT 成品号的名称 / 价格 / 货源 / 质保；有无营业执照；Stripe 主体；售后 TG 和邮箱（`stack/theme/sw-config.js` 里现在是占位 `@your_tg_id`、`support@shuweicao.org`）；**Stripe 收款**：美元汇率定多少、是否只收银行卡（关掉银行转账 / 先买后付）、是否保留"按买家当地货币显示"
 4. **阶段 1 收尾**（用户操作）：Droplet 建议升 1 GB；提交 Stripe 正式账户资料（Cloudflare 接入、NS、证书已完成）
-5. **Stripe 上线**（部署之后）：按 [部署指南第 8 步](docs/03-deployment-guide.md) 建线上渠道和 Webhook 端点 → 测试卡跑通 → 换 live key + live Webhook → 真实小额验收
+5. **Stripe 上线**：2026-11-25 已在 Stripe 沙盒（test 模式）建好线上回调端点 `we_1UfaROJ1vX3S1b8tygDduZvn`（`https://shuweicao.org/api/v1/payments/webhook/stripe`，不带 channel_id，订阅 4 个 checkout.session 事件），签名密钥存在用户 Mac 的 `stack/data/stripe-prod-webhook-secret.txt`（不进 Git；也可在 Stripe 后台 Webhooks 页面查看）。剩下：用户在线上后台建 Stripe 渠道（test 密钥 + 该签名密钥，成功 / 取消跳转 `https://shuweicao.org/pay`，USD / 0.15）→ 测试卡跑通 → 正式账户审核后换 live key，并在正式模式另建端点 → 真实小额验收。见 [部署指南第 8 步](docs/03-deployment-guide.md)
 5b. **加密货币上线**（用户操作）：登录 `https://pay.shuweicao.org/<安全入口>`（凭据见服务器 `/root/bepusdt-initial-credentials.txt`）→ 改密码 / 安全入口 / 重置对接令牌 → 应用 URI 填 `https://pay.shuweicao.org` → 加自己的收款地址（先只开 USDT·TRC20）+ TronGrid Key → 商城后台建 BEpusdt 渠道 → 小额实测。步骤见 [部署指南第 8 步](docs/03-deployment-guide.md)
 5a. **支付宝（XorPay）上线**：用户开通 XorPay → 服务器运行 `./xorpay-setup.sh` 填 aid / app secret → 后台建易支付渠道 → 小额实测。步骤见 [docs/05 第 5 节](docs/05-alipay-xorpay.md)
 6. ~~补传两张图片~~、~~本地改动同步到仓库~~：2026-11-20 已从用户 Mac 用 git 推送
