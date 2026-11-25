@@ -14,6 +14,7 @@ AI 账号自动发卡站，第一个商品是 GPT 成品号。基于开源 [Duji
 | [docs/03-deployment-guide.md](docs/03-deployment-guide.md) | 部署：买什么服务器、去哪注册接入、逐步上线、验收 |
 | [docs/04-tiance-teardown.md](docs/04-tiance-teardown.md) | 竞品拆解：天策怎么做的，两种开发方向的优缺点 |
 | [docs/05-alipay-xorpay.md](docs/05-alipay-xorpay.md) | 支付宝收款：XorPay 个人接口（不用备案、不用营业执照），费用、风险、接入步骤 |
+| [docs/worklog.md](docs/worklog.md) | 工作记录：每次做了什么、改了哪里、怎么验证的、还剩什么（按日期倒序） |
 
 ## 路线图和进度
 
