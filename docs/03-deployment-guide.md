@@ -124,8 +124,8 @@ bash /root/shuweicao/server/03-enable-site.sh
 
 > 本地 test 模式已于 2026-11-20 跑通，渠道各字段怎么填见 [00-local-setup 第 7 节](00-local-setup.md#7-stripe-测试模式本地)，技术细节见 [技术 spec 7.1](02-tech-spec.md#71-stripe2026-11-20-本地-test-模式已跑通v154)。线上不需要 Stripe CLI。
 
-1. 商城后台新建 Stripe 渠道（先 test key）：成功 / 取消跳转都填 `https://shuweicao.org/pay`，目标币种 `USD` + 汇率（2026-11 约 `0.15`）；记下渠道 ID
-2. Stripe（测试模式）→ Developers → Webhooks → 添加端点 `https://shuweicao.org/api/v1/payments/webhook/stripe?channel_id=<渠道ID>`，订阅 `checkout.session.completed`、`checkout.session.async_payment_succeeded`、`checkout.session.async_payment_failed`、`checkout.session.expired`，把这个端点的 `whsec_...` 填回渠道
+1. Stripe（测试模式）→ Developers → Webhooks → 添加端点 `https://shuweicao.org/api/v1/payments/webhook/stripe`，订阅 `checkout.session.completed`、`checkout.session.async_payment_succeeded`、`checkout.session.async_payment_failed`、`checkout.session.expired`，复制这个端点的签名密钥 `whsec_...`。地址可以不带 `channel_id`：Dujiao 收到 Stripe 回调时会用每个 Stripe 渠道的签名密钥逐个验签（`supportsBlindWebhookCandidateMatching`），所以可以先建端点、再建渠道
+2. 商城后台新建 Stripe 渠道（先 test key）：填上一步的 `whsec_...`，成功 / 取消跳转都填 `https://shuweicao.org/pay`，目标币种 `USD` + 汇率（2026-11 约 `0.15`）
 3. 用测试卡 `4242 4242 4242 4242` 跑通：**以商城后台订单变成已付款为准**（回调验签失败时商城也回 200，Stripe 后台看不出来）
 4. 切到正式模式：换 live key（或受限密钥 `rk_live_`），在**正式模式**下再建一个 Webhook 端点（地址、事件同上），填它的 `whsec_...`；真实小额再跑一次
 5. Stripe 后台 → Settings → Payment methods：建议只留银行卡（Apple Pay / Google Pay 属于银行卡），关掉银行转账、先买后付等延迟到账或拒付风险高的方式；决定是否保留"按买家当地货币显示"（Adaptive Pricing）
