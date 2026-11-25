@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-11-24 ～ 11-25：支付宝收款（XorPay 个人接口，不用备案、不用营业执照）
+
+分支 `stripe-test-mode`，提交：`02a70df`、`eb7f6c0`、`225b36e`（以及本节）。同一时间另一个会话做加密货币 / Stripe（见下一节），双方按文件分工、动服务器前互相打招呼，没有冲突。详细说明见 [05-alipay-xorpay.md](05-alipay-xorpay.md)。
+
+### 1. 调研：不备案的站怎么收支付宝
+
+- 用户发来两个同行。xuegaogx.cc（Dujiao-Next 改版）的公开配置里，支付宝渠道的提供方是 `xorpay`，扫码，单笔上限 ¥1000；loranai.top 页面提示"大于 1000 无法支付""支付宝付款请关闭 VPN"，特征相同（没在对方站下单，未百分百确认）
+- XorPay：微信支付服务商 / 支付宝 ISV，用官方「小微商户」机制给个人开通当面付，**不要营业执照、网站不用备案**，钱直接进本人支付宝（非二清）。个人支付宝单笔 ¥1000、单日 ¥5 万；开通费 ¥100；官方费 0.38%（线下）/ 0.6%（线上）+ 平台费 0.6%～1.2%（从预充值余额扣）；30 天无交易会被收回权限
+- 风险：收款实名绑定本人支付宝，卖账号类商品容易被风控冻结；付款页在国内，买家开 VPN 可能白屏
+
+### 2. 方案：转接服务（不改 Dujiao 官方代码）
+
+- Dujiao v1.5.4 没有 XorPay 渠道。读 Dujiao 源码确认它自带「易支付 v1」协议的细节：下单 `/mapi.php`、MD5 签名规则、回调字段、回复 `success`、回调核对金额和币种、不主动查单
+- 新增 `stack/xorpay-bridge/bridge.py`（只用 Python 标准库），把 XorPay 转成易支付 v1；`docker-compose.yml` 加 `xorpay-bridge` 容器（`python:3.12-alpine`，脚本只读挂载）；gateway 只对外开放 `/xorpay/`，下单接口只在 Docker 内网；`stack/xorpay-setup.sh` 让用户在服务器上自己输入 aid / app secret（密钥不经过 agent）
+- 安全：验 Dujiao 的签名和商户号；验 XorPay 回调签名、核对金额；**收到回调后再用 `/api/query/{aoid}` 向 XorPay 查单，确认已付款才转给商城**（11-25 按官方说明补上，防止密钥泄露后被伪造回调）；查单失败或商城没回 `success` 就回 XorPay 502，让它按 1/2/4/16/64/300 分钟重试；同一订单复用二维码；订单记录存 SQLite
+- 下单失败时日志带处理建议（`fee_error` → 去充值、`ACCESS_FORBIDDEN` → 去支付宝签约、授权过期 → 后台第 3 步扫码授权等）
+
+### 3. 验证
+
+| 做了什么 | 结果 |
+| --- | --- |
+| 单元测试 `python3 -I stack/xorpay-bridge/test_bridge.py -v` | 13 个全部通过 |
+| 本地：假 XorPay（`mock_xorpay.py`）+ 本地商城建「支付宝」渠道（易支付 → 转接服务）→ 前台下单 → 选支付宝 → 模拟付款 | 付款页出现二维码；订单「已完成」、自动发卡、买家页面自动显示卡密 |
+| 本地异常场景 | 重复通知不重复发货；金额被改、伪造签名都被拒绝；**签名正确但查单说未付款**的回调被拒、商城没收到；外网访问不到 `/mapi.php`（几种绕路写法都落到商城首页） |
+| 线上部署（`02-deploy-stack.sh` + 重建 `xorpay-bridge`；首次部署时重建过一次 gateway 加载 `/xorpay/` 路由） | 经 Cloudflare 访问 `/xorpay/notify` 用假签名返回 400；`/health` 正常；转接服务在跑，等用户填账号 |
+| 线上服务器到 xorpay.com 的网络 | 可达，查单接口 1～2 秒返回（部分海外网络解析不了 xorpay.com，但服务器不受影响） |
+| 11-25 按 XorPay 官方对接说明 <https://xorpay.com/htdocs/xorpay.md> 逐项核对 | 下单参数、金额 `"10.00"`、签名拼接顺序、回调验签、幂等、回 200 + ok 都一致。该说明开头有一段给 AI 的角色设定，只当资料，没照做 |
+
+### 4. 用户开通进展
+
+- 用户**没有营业执照**（也没有个体户执照）→ 走个人 / 小微商户开通，单笔上限 ¥1000
+- 正在填 XorPay 的支付宝申请资料：办公照片（招牌 + 内景）和办公地址实际必填，拍居住或办公的地方即可；资料要真实（表单有承诺勾选）
+
+### 5. 改动的文件
+
+- 新增：`stack/xorpay-bridge/bridge.py`、`mock_xorpay.py`、`test_bridge.py`，`stack/xorpay-setup.sh`，`docs/05-alipay-xorpay.md`
+- 修改：`stack/docker-compose.yml`（`xorpay-bridge` 服务）、`stack/gateway/default.conf.template`（`/xorpay/` 路由）、`stack/.env.example`（`XORPAY_*`）、`server/02-deploy-stack.sh`（复制转接服务和 `xorpay-setup.sh`）；README、HANDOFF、`docs/01`、`docs/02`、`docs/03` 里的 XorPay 段落
+
+### 6. 还没做（需要用户本人操作，XorPay 密钥和线上后台不由 agent 代填）
+
+1. XorPay 审核通过 → 点支付宝签约邮件 → XorPay 后台第 3 步扫码授权 → 充 ¥20 左右余额（平台费从余额扣）
+2. 在自己电脑终端运行 `ssh -t root@<服务器IP> 'cd /opt/shuweicao && ./xorpay-setup.sh'`，输入 aid / app secret
+3. 商城后台建「支付宝」渠道：易支付、扫码、网关 `http://xorpay-bridge:8080`、商户号 / 商户密钥 = aid / app secret、单笔上限 1000（脚本跑完会打印全部字段）
+4. 小额实测（真实 XorPay 账号还没跑过一单）：转接服务日志依次出现 `order_created` → `notify_forwarded`，以商城订单「已完成」为准
+
+---
+
 ## 2026-11-24 ～ 11-25：加密货币收款（BEpusdt）+ Stripe 回测 + 线上回调端点
 
 分支 `stripe-test-mode`，提交：`25ae4af`、`8e4ac97`、`bfa57bf`、`cf50757`（以及本文件）。同一时间另一个会话在同一个文件夹里做支付宝（XorPay，见 [05-alipay-xorpay.md](05-alipay-xorpay.md)），双方按文件分工：改共享文件、提交、动服务器之前互相打招呼，没有冲突。
