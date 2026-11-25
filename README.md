@@ -24,7 +24,7 @@ AI 账号自动发卡站，第一个商品是 GPT 成品号。基于开源 [Duji
 | 2 | 上架 GPT 成品号（同时开 USDT） | ⬜ |
 | 3 | 国外支付：USDT → Stripe | 🟡 加密货币 USDT / USDC（BEpusdt）本地跑通，线上 pay.shuweicao.org 已部署、待填钱包地址和建渠道（[步骤](docs/03-deployment-guide.md)）；Stripe 本地 test 模式跑通（[步骤](docs/00-local-setup.md#7-stripe-测试模式本地)），待上线 |
 | 4 | 国内备案（新域名 + 国内服务器 + 企业主体） | ⬜ 需营业执照 |
-| 5 | 国内支付：支付宝 | 🟡 走 XorPay 个人接口（不用备案、不用营业执照），转接服务已做好并本地测通，等开通 XorPay（[步骤](docs/05-alipay-xorpay.md)）；支付宝官方仍需执照 + 备案 |
+| 5 | 国内支付：支付宝 | 🟡 走 XorPay 个人接口（不用备案、不用营业执照），转接服务已按官方对接说明核对、本地测通并部署到线上，等你开通 XorPay 后填账号（[步骤](docs/05-alipay-xorpay.md)）；支付宝官方仍需执照 + 备案 |
 
 ## 现在就能并行做的事
 

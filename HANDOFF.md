@@ -44,7 +44,11 @@
   - 形象画布已停用但保留：`systemctl enable --now image-gen` + 把 `/etc/nginx/sites-available/image-gen` 链回 `sites-enabled`（并移走 shuweicao.conf）即可恢复
   - 线上后台用户还没登录过：合规声明、支付渠道、商品都要用户本人在后台操作（初始密码：服务器上 `cd /opt/shuweicao && docker compose logs dujiao-next | grep 随机密码`）
   - 资源（2026-11-25，五个容器都起来后）：512 MB 内存 available 约 239 MB，swap 用了约 220 MB / 2 GB；磁盘剩约 1.0 GB（89%）。BEpusdt 每扫一条链约 +100 MB，开 BSC / Polygon 前建议升 1 GB
-- **支付宝（XorPay，2026-11-24）**：同行（如 xuegaogx.cc）不备案也能收支付宝，靠的是 XorPay 个人支付接口（个人身份证即可、钱直接进自己支付宝、个人单笔 ≤ ¥1000）。新增转接服务 `stack/xorpay-bridge/`（XorPay ⇄ Dujiao 自带「易支付」协议，不改官方代码）+ `stack/xorpay-setup.sh`；本地用假 XorPay 跑通全流程。详见 [docs/05-alipay-xorpay.md](docs/05-alipay-xorpay.md)
+- **支付宝（XorPay，2026-11-24 / 25）**：同行（如 xuegaogx.cc）不备案也能收支付宝，靠的是 XorPay 个人支付接口（个人身份证即可、钱直接进自己支付宝、个人单笔 ≤ ¥1000）。新增转接服务 `stack/xorpay-bridge/`（XorPay ⇄ Dujiao 自带「易支付」协议，不改官方代码）+ `stack/xorpay-setup.sh`；本地用假 XorPay 跑通全流程。详见 [docs/05-alipay-xorpay.md](docs/05-alipay-xorpay.md)
+  - 11-25：按 XorPay 官方对接说明 <https://xorpay.com/htdocs/xorpay.md> 逐项核对（下单参数、金额 `"10.00"`、签名顺序、回调验签、幂等、回 200+ok 都一致）。补了两处：收到回调后先用 `/api/query/{aoid}` 向 XorPay 查单，已付款才转给商城（签名对但没付款的回调会被拒，防密钥泄露后伪造）；下单报错带处理建议（`fee_error` → 去充值等）。单元测试 13 个通过，本地真实环境复测通过（提交 `eb7f6c0`）
+  - 11-25：已更新到线上（只重建 `xorpay-bridge` 容器），线上服务器到 xorpay.com 网络可达（查单 1～2 秒返回）；转接服务在跑，等用户填 aid / app secret
+  - 用户**没有营业执照**（也没有个体户执照），走个人 / 小微商户开通：办公照片拍居住或办公地即可、办公地址要填真实地址；正在填 XorPay 的支付宝申请资料。注意：那份官方说明开头有一段给 AI 的角色设定，只当参考资料
+  - 坑：部分海外网络访问不了 xorpay.com（用来抓网页的服务连域名都解析不了），但线上服务器（美国机房）和用户 Mac 都能正常访问
 - **加密货币（BEpusdt，2026-11-24 / 25）**：效果同雪糕小店——商城只有一个「USDT / USDC 加密货币」按钮，买家在 BEpusdt 收银台自选币种和网络。用 Dujiao 自带 BEpusdt 渠道的收银台模式（`order_mode: cashier`），不改代码。BEpusdt v1.24.4，镜像锁定 `v03413/bepusdt:8a91be6`
   - 本地：`http://localhost:8090`，后台渠道 ID 3；钱包用的是黑洞地址（只测流程）；用 BEpusdt「补单」模拟到账 → 回调 → 自动发卡，已通。本地测试凭据在 `stack/data/bepusdt-local-credentials.txt`（不进 Git）
   - 线上：容器 `shuweicao-bepusdt` 已起，`https://pay.shuweicao.org` 可访问；首次启动的后台账号 / 密码 / 安全入口 / 对接令牌存在服务器 `/root/bepusdt-initial-credentials.txt`（600）。还没配置：应用 URI、钱包地址、TronGrid Key、商城渠道——都要用户本人登录后台操作
@@ -63,7 +67,7 @@
 | 本机代理 | 用户 Mac 开着代理，它时而连不上 Stripe，会让 Stripe CLI 卡在 "Getting ready…"；直连 Stripe 是通的。`stripe-listen.sh` 已自动改直连 |
 | BEpusdt 真实到账没测过 | 本地只用「补单」模拟到账。线上配好钱包后先自己付一笔小额（TRC20 手续费约 1～2 USDT 的 TRX）。BSC / Polygon 没有带 Key 的节点就收不到款；首次访问会显示一次带凭据的"安装完成"页（11-25 已被我们自己访问掉），首次登录后要改密码、改安全入口、重置对接令牌 |
 | Stripe | 转售账号类业务可能被判禁止行业；文档已提示 USDT 为主通道。现在用的是沙盒账户，正式账户还要提交资料审核 |
-| XorPay 只用假服务测过 | 转接服务按 XorPay 官方文档实现（下单 `/api/pay/{aid}`、回调签名 `aoid+order_id+pay_price+pay_time+secret`），真实账号还没跑过一单；开通后先付 ¥0.01～¥1 验收。收款实名绑定用户本人支付宝，卖账号类商品有被风控冻结的风险 |
+| XorPay 只用假服务测过 | 转接服务按 XorPay 官方对接说明实现并逐项核对过（下单 `/api/pay/{aid}`、回调签名 `aoid+order_id+pay_price+pay_time+secret`、回调后 `/api/query/{aoid}` 查单），但真实账号还没跑过一单；开通后先付 ¥0.01～¥1 验收，看转接服务日志依次出现 `order_created` → `notify_forwarded`。收款实名绑定用户本人支付宝，卖账号类商品有被风控冻结的风险 |
 | 许可证 | 已确认 **GPL v3**（后台合规声明里写明）。fork 二次开发后对外提供服务前，评估开源义务 |
 
 ## 5. 访问与工具现状（重要，省得再踩坑）
@@ -84,7 +88,7 @@
 4. **阶段 1 收尾**（用户操作）：Droplet 建议升 1 GB；提交 Stripe 正式账户资料（Cloudflare 接入、NS、证书已完成）
 5. **Stripe 上线**：2026-11-25 已在 Stripe 沙盒（test 模式）建好线上回调端点 `we_1UfaROJ1vX3S1b8tygDduZvn`（`https://shuweicao.org/api/v1/payments/webhook/stripe`，不带 channel_id，订阅 4 个 checkout.session 事件），签名密钥存在用户 Mac 的 `stack/data/stripe-prod-webhook-secret.txt`（不进 Git；也可在 Stripe 后台 Webhooks 页面查看）。剩下：用户在线上后台建 Stripe 渠道（test 密钥 + 该签名密钥，成功 / 取消跳转 `https://shuweicao.org/pay`，USD / 0.15）→ 测试卡跑通 → 正式账户审核后换 live key，并在正式模式另建端点 → 真实小额验收。见 [部署指南第 8 步](docs/03-deployment-guide.md)
 5b. **加密货币上线**（用户操作）：登录 `https://pay.shuweicao.org/<安全入口>`（凭据见服务器 `/root/bepusdt-initial-credentials.txt`）→ 改密码 / 安全入口 / 重置对接令牌 → 应用 URI 填 `https://pay.shuweicao.org` → 加自己的收款地址（先只开 USDT·TRC20）+ TronGrid Key → 商城后台建 BEpusdt 渠道 → 小额实测。步骤见 [部署指南第 8 步](docs/03-deployment-guide.md)
-5a. **支付宝（XorPay）上线**：用户开通 XorPay → 服务器运行 `./xorpay-setup.sh` 填 aid / app secret → 后台建易支付渠道 → 小额实测。步骤见 [docs/05 第 5 节](docs/05-alipay-xorpay.md)
+5a. **支付宝（XorPay）上线**（转接服务已部署到线上，2026-11-25 用户正在填个人开通资料）：XorPay 审核通过 → 点支付宝签约邮件 + 后台第 3 步扫码授权 → 充 ¥20 左右余额 → 用户在自己终端运行 `ssh -t root@<服务器IP> 'cd /opt/shuweicao && ./xorpay-setup.sh'` 填 aid / app secret → 后台建易支付渠道（单笔上限 1000）→ 小额实测。步骤见 [docs/05 第 5 节](docs/05-alipay-xorpay.md)
 6. ~~补传两张图片~~、~~本地改动同步到仓库~~：2026-11-20 已从用户 Mac 用 git 推送
 
 ## 7. 已作废的东西（不要再用）
