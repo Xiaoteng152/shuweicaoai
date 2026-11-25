@@ -109,18 +109,22 @@ bash /root/shuweicao/server/03-enable-site.sh
 
 ### 第 8 步：支付（按顺序）
 
-**USDT（先开）**
+**加密货币 USDT / USDC（BEpusdt，先开）**
 
-1. `docker compose logs bepusdt` 找安全入口 → 打开 `https://pay.shuweicao.org/<安全入口>` → 按向导建管理员
-2. 添加 TRC20 收款**地址**（不要填私钥）、填 TronGrid API Key
-3. 商城后台 → 支付渠道 → 新建 BEpusdt，填 BEpusdt 的地址和 Token
-4. 自己付一笔最小金额，确认：链上到账 → 回调 → 自动发卡
+> 本地已于 2026-11-24 跑通，各字段怎么填见 [00-local-setup 第 8 节](00-local-setup.md#8-加密货币收款bepusdtusdt--usdc本地)，技术细节见 [技术 spec 7.2](02-tech-spec.md)。2026-11-25 线上已完成 1～3 步。
+
+1. 起容器：`cd /opt/shuweicao && docker compose up -d bepusdt`（`.env` 里 `BEPUSDT_TAG` 锁定版本）。首次启动的后台账号 / 密码 / 安全入口 / 对接令牌只打印一次：`docker logs shuweicao-bepusdt 2>&1 | grep -E "登录账号|登录密码|安全入口|对接令牌"`，马上存好（服务器上已另存 `/root/bepusdt-initial-credentials.txt`）
+2. 证书：`bash /root/shuweicao/server/03-enable-site.sh --issue-pay-cert`（已有 Let's Encrypt 主站证书时，给 pay 子域另签一张；证书验证统一走 `/var/www/html`）。主站证书续期也改成 webroot：`certbot reconfigure --cert-name shuweicao.org --webroot --webroot-path /var/www/html`，然后 `certbot renew --dry-run` 两张都要成功
+3. 打开 `https://pay.shuweicao.org/<安全入口>` 登录 → **先改密码、改安全入口、重置对接令牌** → API 设置里「应用 URI」填 `https://pay.shuweicao.org`
+4. 钱包管理：每个「币种 + 网络」加一条自己钱包的收款**地址**（不要填私钥 / 助记词），建议先只开 `USDT・TRC20`；区块节点里填 TronGrid API Key。要开 BSC / Polygon，先注册 Alchemy 等节点服务拿 Key 填进「区块节点」，并考虑把服务器升到 1 GB
+5. 商城后台 → 支付渠道 → 新建 BEpusdt：网关 `http://bepusdt:8080`、对接令牌、订单模式 `cashier`、币种 `USDT,USDC`、法币 `CNY`、通知地址 `http://dujiao-next:8080/api/v1/payments/callback`、同步地址 `https://shuweicao.org/pay`
+6. 自己付一笔小额（TRC20 转账手续费约等于 1～2 USDT 的 TRX，测试金额别太小），确认：BEpusdt 订单「交易成功 / 回调成功」→ 商城订单「已完成」→ 自动发卡
 
 **Stripe（审核通过后）**
 
 > 本地 test 模式已于 2026-11-20 跑通，渠道各字段怎么填见 [00-local-setup 第 7 节](00-local-setup.md#7-stripe-测试模式本地)，技术细节见 [技术 spec 7.1](02-tech-spec.md#71-stripe2026-11-20-本地-test-模式已跑通v154)。线上不需要 Stripe CLI。
 
-1. 商城后台新建 Stripe 渠道（先 test key）：成功 / 取消跳转都填 `https://shuweicao.org/pay`，目标币种 `USD` + 汇率；记下渠道 ID
+1. 商城后台新建 Stripe 渠道（先 test key）：成功 / 取消跳转都填 `https://shuweicao.org/pay`，目标币种 `USD` + 汇率（2026-11 约 `0.15`）；记下渠道 ID
 2. Stripe（测试模式）→ Developers → Webhooks → 添加端点 `https://shuweicao.org/api/v1/payments/webhook/stripe?channel_id=<渠道ID>`，订阅 `checkout.session.completed`、`checkout.session.async_payment_succeeded`、`checkout.session.async_payment_failed`、`checkout.session.expired`，把这个端点的 `whsec_...` 填回渠道
 3. 用测试卡 `4242 4242 4242 4242` 跑通：**以商城后台订单变成已付款为准**（回调验签失败时商城也回 200，Stripe 后台看不出来）
 4. 切到正式模式：换 live key（或受限密钥 `rk_live_`），在**正式模式**下再建一个 Webhook 端点（地址、事件同上），填它的 `whsec_...`；真实小额再跑一次

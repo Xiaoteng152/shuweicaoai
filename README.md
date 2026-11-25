@@ -22,7 +22,7 @@ AI 账号自动发卡站，第一个商品是 GPT 成品号。基于开源 [Duji
 | 0 | 技术准备：Mac 本地跑通（[00-local-setup](docs/00-local-setup.md)） | 🟡 已跑通测试订单，主题待看 |
 | 1 | 部署上线 shuweicao.org | 🟡 2026-11-20 商城已部署（替换了原来的形象画布），支付渠道待在线上后台配置 |
 | 2 | 上架 GPT 成品号（同时开 USDT） | ⬜ |
-| 3 | 国外支付：USDT → Stripe | 🟡 Stripe 本地 test 模式已跑通（[步骤](docs/00-local-setup.md#7-stripe-测试模式本地)），待上线 live |
+| 3 | 国外支付：USDT → Stripe | 🟡 加密货币 USDT / USDC（BEpusdt）本地跑通，线上 pay.shuweicao.org 已部署、待填钱包地址和建渠道（[步骤](docs/03-deployment-guide.md)）；Stripe 本地 test 模式跑通（[步骤](docs/00-local-setup.md#7-stripe-测试模式本地)），待上线 |
 | 4 | 国内备案（新域名 + 国内服务器 + 企业主体） | ⬜ 需营业执照 |
 | 5 | 国内支付：支付宝 | 🟡 走 XorPay 个人接口（不用备案、不用营业执照），转接服务已做好并本地测通，等开通 XorPay（[步骤](docs/05-alipay-xorpay.md)）；支付宝官方仍需执照 + 备案 |
 
@@ -30,6 +30,7 @@ AI 账号自动发卡站，第一个商品是 GPT 成品号。基于开源 [Duji
 
 - [x] Mac 装 Docker Desktop，按 [00-local-setup](docs/00-local-setup.md) 本地跑起来
 - [x] Cloudflare 添加站点，Spaceship 改 NS（DNS 生效需要时间）
+- [ ] 加密货币收款：登录 pay.shuweicao.org 后台，改密码 / 重置对接令牌，填自己的 USDT·TRC20 收款地址，商城后台建 BEpusdt 渠道（[部署指南第 8 步](docs/03-deployment-guide.md)）
 - [ ] 开通 XorPay 个人收款（¥100，用自己的支付宝签约），见 [docs/05](docs/05-alipay-xorpay.md) 第 5 节
 - [ ] 提交 Stripe 正式账户资料审核（现在用的是沙盒）
 - [ ] 定 Stripe 收款规则：美元汇率、是否只收银行卡、是否按买家当地货币显示

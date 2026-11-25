@@ -56,7 +56,7 @@ curl http://localhost:8080/health                       # 健康检查
 
 - 前台：http://localhost:8080
 - 后台：http://localhost:8080 + 你设置的 `admin_path`
-- USDT 收银台（BEpusdt）：http://localhost:8090 ，安全入口路径见 `docker compose logs bepusdt`
+- 加密货币收银台 + 后台（BEpusdt，USDT / USDC）：http://localhost:8090 ，见下面第 8 节
 
 **8080 端口被占用**（比如本机还跑着别的项目）：把 `.env` 里的 `APP_PORT` 改成别的（如 `8088`），下文的 8080 都换成它。
 
@@ -130,7 +130,7 @@ export DOCKER_DEFAULT_PLATFORM=linux/amd64
 | Webhook Secret | 上一步打印的 `whsec_...` |
 | 成功跳转 / 取消跳转 | 都填 `http://localhost:<APP_PORT>/pay` |
 | API 地址 | 默认 `https://api.stripe.com` |
-| 目标币种 / 汇率 | `USD` / `0.14`：商城按人民币标价，付款时按这个固定汇率换成美元收。汇率不会自动更新，要定期手动改 |
+| 目标币种 / 汇率 | `USD` / `0.15`（2026-11 美元兑人民币约 6.68，1 ÷ 6.68 ≈ 0.15）：商城按人民币标价，付款时按这个固定汇率换成美元收。汇率不会自动更新，要定期手动改 |
 | 支付方式类型 | 留空 = 用 Stripe 后台开着的所有方式；填 `card` = 只收银行卡（含 Apple Pay / Google Pay） |
 
 建好后记下渠道 ID（第一个是 1），对应 `.env` 的 `STRIPE_CHANNEL_ID`。
@@ -149,3 +149,58 @@ export DOCKER_DEFAULT_PLATFORM=linux/amd64
 - **收银台默认显示买家当地货币**：Stripe 默认开了 Adaptive Pricing（自动换成当地货币）。商城记账仍是美元，已测过越南盾付款正常入账；不想要可在 Stripe 后台关掉
 - **收银台里除了银行卡还有 Amazon Pay、Cash App Pay、美国银行转账、Klarna**：这是 Stripe 后台默认开的。银行转账要几天才到账，到账前不发货；发卡站建议只留银行卡（渠道里填 `card`，或在 Stripe 后台关掉其他方式）
 - **回调验签失败时 HTTP 状态码仍是 200**（错误写在返回内容里），Stripe 后台看起来"投递成功"。所以验收要看商城后台订单是否真的变成已付款，不能只看 Stripe 后台
+
+## 8. 加密货币收款（BEpusdt，USDT / USDC，本地）
+
+> 2026-11-24 已在本机跑通：下单 → 跳到 BEpusdt 收银台 → 买家自己选币种（USDT / USDC）和网络 → 显示金额和收款地址 → 到账回调 → 自动发卡。到账这一步本地用 BEpusdt 后台的「补单」模拟（不真付钱）。
+
+效果和雪糕小店一样：商城结算页只有一个「USDT / USDC 加密货币」按钮，币种和网络在 BEpusdt 的收银台页面里选。用的是 Dujiao 自带 BEpusdt 渠道的**收银台模式**（`order_mode: cashier`），不改代码。
+
+### 8.1 启动 BEpusdt
+
+```bash
+docker compose up -d bepusdt
+docker compose logs bepusdt        # 首次启动打印后台账号、密码、安全入口、对接令牌，只出现这一次，马上存好
+```
+
+后台：`http://localhost:8090/<安全入口>`。第一次打开安全入口会先显示一次"安装完成"页（同样是这些信息），之后才是登录页。
+
+### 8.2 BEpusdt 后台设置
+
+| 位置 | 填写 |
+| --- | --- |
+| 系统管理 → 基本设置 → API 设置 → 应用 URI | `http://localhost:8090`（线上填 `https://pay.shuweicao.org`）。收银台链接用它拼，不填会跳错 |
+| 钱包管理 → 新增钱包 | 每个「币种 + 网络」一条：交易类型选如 `USDT・TRC20`、`USDT・BEP20`、`USDC・Polygon`，填**自己钱包的收款地址**（只填地址，永远不填私钥 / 助记词）；「其它通知」保持关闭 |
+| 系统管理 → 区块节点 | TRON 默认节点能用，建议填 TronGrid API Key（免费）；**BSC / Polygon 的默认节点已不可用**，要填带 Key 的节点（见 8.5） |
+
+本地测试时钱包地址用的是公认的黑洞地址（`T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb`、`0x000000000000000000000000000000000000dEaD`），只为看流程，千万别往里付款。
+
+### 8.3 商城后台建渠道
+
+后台 → 支付渠道 → 新建，提供方选 **BEpusdt**：
+
+| 字段 | 填写 |
+| --- | --- |
+| 名称 | `USDT / USDC 加密货币` |
+| 渠道类型 / 交互方式 | `bepusdt` / 跳转（收银台模式只支持跳转） |
+| 支付网关 | `http://bepusdt:8080`（Docker 内网地址，商城直接找 BEpusdt 下单） |
+| API Token | BEpusdt 的对接令牌 |
+| 订单模式 | `cashier`（收银台模式：买家在付款页自选币种和网络） |
+| 币种 | `USDT,USDC`（只开放这两种） |
+| 法币 | `CNY`（按 BEpusdt 自动同步的市场汇率换算，¥10 ≈ 1.5 USDT） |
+| 通知地址 | `http://dujiao-next:8080/api/v1/payments/callback`（Docker 内网，不经过公网 / Cloudflare） |
+| 同步地址 | `http://localhost:<APP_PORT>/pay`（线上 `https://shuweicao.org/pay`） |
+
+### 8.4 测一单（不花钱）
+
+1. 前台买测试商品 → 选「USDT / USDC 加密货币」→ 跳到 BEpusdt 收银台 → 选币种、网络 → 看到金额、地址、二维码、20 分钟倒计时
+2. BEpusdt 后台 → 交易订单 → 这一单点「补单」（强制标记已付款，**只在测试时用**）
+3. 预期：BEpusdt 订单显示「交易成功 / 回调成功」；商城订单「已完成」、卡密少一条
+
+### 8.5 踩过的坑
+
+- **BSC / Polygon 收不到款**：BEpusdt 默认的 BSC、Polygon、Ethereum、Base 节点（nodies.app）已改成收费，返回 403；换成免费公开节点也不行——BEpusdt 扫块时不按合约过滤地查整块的转账记录，PublicNode 等免费节点会拒绝（要求指定地址 / 不给查历史块 / 限流）。要稳定收款，需注册节点服务商拿 Key（BEpusdt 官方推荐 Alchemy，免费套餐每月 3 亿计算单元），把带 Key 的地址填进「区块节点」
+- **TRON 开箱即用**：默认节点扫块成功率 100%；长期用建议填 TronGrid API Key 防限流
+- **只在有待付订单时扫块**：没有待付订单的链不会扫，不耗流量
+- **回调回复**：Dujiao 处理成功回 `success`，BEpusdt 文档写要求回 `ok`，但它的代码两者都认（`app/task/notify/notify.go`），不用改
+- **买家选好网络时，BEpusdt 会先发一次「等待支付」通知**，商城回 `fail`，属正常，不影响到账

@@ -15,7 +15,7 @@
 | 商城 | Dujiao-Next（`dujiaonext/dujiao-next` 镜像） | 后端 Go（Gin + GORM），前台和后台都是 Vue 3；一个容器、一个端口（8080）同时提供前台、后台、API |
 | 数据库 | SQLite（`/app/db/dujiao.db`） | 官方轻量方案。订单量大了再迁到 PostgreSQL（官方提供 `postgres:16-alpine` 方案） |
 | 缓存 / 队列 | Redis 7（`redis:7-alpine`） | 只在 Docker 内部网络，不对外暴露端口 |
-| USDT 收款 | BEpusdt（`v03413/bepusdt`） | 自建，监听链上到账后回调商城；只放收款地址，不放私钥 |
+| 加密货币收款（USDT / USDC） | BEpusdt v1.24.4（`v03413/bepusdt:8a91be6`） | 自建，监听链上到账后回调商城；只放收款地址，不放私钥；收银台在 `pay.shuweicao.org` |
 | 编排 | Docker Compose | 本地 Mac 和线上服务器用同一份 `stack/docker-compose.yml` |
 | 反向代理 | Nginx（宿主机） | 443 端口，Cloudflare 源站证书；把 Cloudflare 传来的真实 IP 还原 |
 | 主题网关 | Nginx 容器 `gateway`（`nginx:1.27-alpine`） | 商城前的一层，自动在页面插入 `stack/theme/` 的主题 CSS / JS（天策式外挂，见第 11 节） |
@@ -104,7 +104,7 @@ shuweicao/
 
 | 渠道 | Dujiao 渠道类型 | 回调 | 要点 |
 | --- | --- | --- | --- |
-| USDT | BEpusdt | BEpusdt → 商城回调 | BEpusdt 后台配收款地址 + TronGrid API Key；商城里填 BEpusdt 的地址和 Token |
+| 加密货币（USDT / USDC） | BEpusdt，收银台模式（跳转到 `https://pay.shuweicao.org`） | BEpusdt → 内网 `http://dujiao-next:8080/api/v1/payments/callback` | BEpusdt 后台配收款地址 + 区块节点；商城里填内网网关 `http://bepusdt:8080` 和对接令牌。细节见 7.2 |
 | Stripe | 官方 / Stripe（跳转） | `https://shuweicao.org/api/v1/payments/webhook/stripe?channel_id=<渠道ID>` | 先 test key 后 live key；细节见 7.1 |
 | 支付宝（XorPay） | 易支付 v1（扫码），网关 = 内网 `http://xorpay-bridge:8080` | XorPay → `https://shuweicao.org/xorpay/notify` → 转接服务 → 内网 `http://dujiao-next:8080/api/v1/payments/callback` | 不用备案 / 执照；转接服务把 XorPay 转成易支付协议，不改官方代码。细节见 [05-alipay-xorpay.md](05-alipay-xorpay.md) |
 | 支付宝（官方） | 支付宝官方 / 易支付 | `https://shuweicao.org/api/v1/payments/callback` | 官方需营业执照 + 备案域名 |
@@ -127,7 +127,7 @@ shuweicao/
 | `webhook_secret` | `whsec_…` | 必填。本地用 `stripe-listen.sh --print-secret`；线上用 Stripe 后台该 Webhook 端点自己的密钥，两者不同 |
 | `success_url` / `cancel_url` | `https://shuweicao.org/pay` | 必填。本地填 `http://localhost:<APP_PORT>/pay` |
 | `api_base_url` | `https://api.stripe.com` | 默认 |
-| `target_currency` / `exchange_rate` | `USD` / 如 `0.14` | 商城人民币标价 → 按固定汇率收美元；不会自动更新，需定期手动改 |
+| `target_currency` / `exchange_rate` | `USD` / 如 `0.15`（2026-11 美元兑人民币约 6.68） | 商城人民币标价 → 按固定汇率收美元；不会自动更新，需定期手动改 |
 | `payment_method_types` | 空或 `["card"]` | 空 = 用 Stripe 后台开着的全部方式（动态支付方式） |
 | `webhook_tolerance_seconds` | 默认 300 | 回调时间戳允许误差 |
 
@@ -141,6 +141,42 @@ shuweicao/
 - Stripe 默认开着多种支付方式（Amazon Pay、Cash App Pay、美国银行转账、Klarna 等）。银行转账这类延迟到账的方式，到账前订单不发货；建议只留银行卡（`payment_method_types: ["card"]`，仍包含 Apple Pay / Google Pay）
 - 上线可改用受限密钥（`rk_live_…`），只开 Checkout Sessions 写权限和 PaymentIntents 读权限，换上后先跑一单确认
 - 本地开着代理时 Stripe CLI 可能连不上，`stripe-listen.sh` 会自动改为直连
+
+### 7.2 加密货币：BEpusdt（2026-11-24 本地跑通，线上已部署待配置）
+
+**版本**：BEpusdt v1.24.4，镜像 `v03413/bepusdt:8a91be6`（与 `latest` 同一镜像，`.env` 的 `BEPUSDT_TAG` 锁定）。GPL-3.0，自建，只放收款地址，不放私钥。
+
+**流程**（Dujiao BEpusdt 渠道的收银台模式，调 BEpusdt `/api/v1/order/create-order`）：下单 → 商城在内网向 BEpusdt 建单 → 买家跳到 `https://pay.shuweicao.org/pay/checkout/<id>` → 选币种（USDT / USDC）和网络 → BEpusdt 给出金额（按自动同步的市场汇率，金额精确到 0.01）和收款地址，20 分钟内有效 → BEpusdt 扫块发现到账 → 回调商城 → 自动发卡。
+
+**渠道配置（config_json）**
+
+| 键 | 值 | 说明 |
+| --- | --- | --- |
+| `gateway_url` | `http://bepusdt:8080` | Docker 内网地址；不用公网域名 |
+| `auth_token` | BEpusdt 对接令牌 | 首次启动打印在日志里；可在 BEpusdt 后台重置 |
+| `order_mode` | `cashier` | 收银台模式（买家自选币种 / 网络）；`transaction` 是固定 `trade_type` 的旧模式 |
+| `currencies` | `USDT,USDC` | 收银台只开放这两种 |
+| `fiat` | `CNY` | 商城按人民币标价 |
+| `notify_url` | `http://dujiao-next:8080/api/v1/payments/callback` | 内网回调，不经过 Cloudflare |
+| `return_url` | `https://shuweicao.org/pay` | 付完跳回商城 |
+
+**BEpusdt 侧**：「应用 URI」= `https://pay.shuweicao.org`（收银台链接用它拼）；每个「币种 + 网络」一条钱包；只在有待付订单的链上扫块。
+
+**区块节点（重要）**
+
+| 网络 | 默认节点 | 结论 |
+| --- | --- | --- |
+| TRON | `grpc.trongrid.io:50051` | 能用（实测扫块成功率 100%）；建议加 TronGrid API Key（免费）防限流 |
+| BSC / Polygon / Ethereum / Base | `*-public.nodies.app` | **已不可用**（403 / 要求付费）。免费公开节点（PublicNode、dRPC、官方 RPC）也不行：BEpusdt 不带合约地址地 `eth_getLogs` 整块查转账，这些节点会拒绝 / 不给查历史块 / 限流。需要带 Key 的节点，如 Alchemy 免费套餐 |
+
+**已验证（本地）**：收银台选 USDT·BSC / USDT·TRON / USDC·Polygon 都能出单；BEpusdt「补单」→ 回调商城 → 订单完成、卡密 -1；BEpusdt 记为回调成功。
+
+**注意**
+
+- Dujiao 处理成功回 `success`；BEpusdt 文档写要求 `ok`，但代码只要回复里含 `success` 或 `ok` 都算成功（`app/task/notify/notify.go`），无需改写
+- 买家选好网络时 BEpusdt 先发一次「等待支付」通知，商城回 `fail`，属正常
+- BEpusdt 首次启动的后台账号 / 密码 / 安全入口 / 对接令牌只在日志里出现一次；首次访问会显示一次"安装完成"页。线上首次登录后要改密码、改安全入口、重置对接令牌
+- 内存：每条正在扫块的网络约 100 MB（BEpusdt 官方数据），官方建议 1 GB 内存；当前 512 MB 服务器开 1～2 条链可以，多了要升级
 
 ## 8. 安全
 
@@ -164,7 +200,8 @@ shuweicao/
 
 ## 10. 容量与扩展
 
-- 1 GB 内存可支撑当前四个容器（gateway、dujiao-next、redis、bepusdt）；内存长期超过 80% 再升 2 GB
+- 1 GB 内存可支撑当前容器（gateway、dujiao-next、redis、bepusdt、xorpay-bridge）；内存长期超过 80% 再升 2 GB
+- 2026-11-25 线上仍是 512 MB（+2 GB swap）：五个容器都起来后 available 约 239 MB、swap 用了约 220 MB；磁盘剩约 1.0 GB（89%）。BEpusdt 每扫一条链约 +100 MB，加 BSC / Polygon 前建议先升 1 GB
 - 订单量上来后：SQLite → PostgreSQL；备份改为 `pg_dump`
 - 国内站上线时：同一套 `stack/` 部署到国内服务器，数据是否共用另行设计（两个站独立运营最简单）
 
